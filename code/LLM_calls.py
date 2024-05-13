@@ -24,7 +24,7 @@ def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do
     if model_name == 'Mistral':
         model_inputs = tokenizer.apply_chat_template(messages, return_tensors="pt")
 
-        generated_ids = model.generate(model_inputs, max_new_tokens=1000, do_sample=do_sample)
+        generated_ids = model.generate(model_inputs, max_new_tokens=1024, do_sample=do_sample)
         decoded = tokenizer.batch_decode(generated_ids)
         
         return decoded[0]   # include input, need extra process
