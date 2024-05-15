@@ -15,7 +15,9 @@ def prompt_fomular(line:dict, dataset, shuffle=True):
         for i, cand in enumerate(candidates_list):
             content += '{}.{}\n'.format(i, cand)
         
+        '''raw'''
         content += 'The answer is therefore:'
+        '''explain'''
         return content
         
 if __name__ == '__main__':
