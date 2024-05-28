@@ -2,7 +2,7 @@ import json
 
 def read_data(dataset_name, file_path):
     with open(file_path) as f:
-        if dataset_name == 'Truthful_QA':
+        if dataset_name in ['Truthful_QA', 'Temporal_QA'] :
             data = f.read()
             data = json.loads(data)
             return data
