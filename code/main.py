@@ -48,7 +48,8 @@ if __name__ == '__main__':
     dataset = 'Temporal_QA'
     dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/dev.json'
     model_name = 'Mistral'
-    output_file = open('result/TemporalQA/{}_raw.json'.format(model_name), 'w')
+    output_file_name = 'result/TemporalQA/{}_raw.json'.format(model_name)
+    output_file = open(output_file_name, 'w')
     full_flag = True
     if model_name == 'Mistral':
         model, tokenizer = load_llm(model_name, '/data/share_weight/mistral-7B-v0.2-instruct')
