@@ -4,7 +4,7 @@ import random
 import json
 from tqdm import tqdm
 
-def prompt_fomular(line:dict, dataset, shuffle=True):
+def prompt_fomular(line:dict, dataset, model=None,shuffle=True):
     if dataset == 'Truthful_QA':
         content = 'I will give a question and some answer choices, please select the only correct answer.\n\n'
         content += 'Question:{}\n'.format(line['question'])
@@ -18,6 +18,16 @@ def prompt_fomular(line:dict, dataset, shuffle=True):
         '''raw'''
         content += 'The answer is therefore:'
         '''explain'''
+
+        return content
+    elif dataset == 'Temporal_QA':
+        if model == 'Mistral':
+            content = "Please answer the Question. The answer should be an entity of several words. \n"
+        else:
+            content = "Please answer the Question and specify your answer with 'The answer is'.\n"
+
+        content += 'Question: {}\n'.format(line['Question'])
+
         return content
         
 if __name__ == '__main__':
@@ -35,23 +45,20 @@ if __name__ == '__main__':
     # pipeline = load_llm(model_name, '/data/share_weight/Meta-Llama-3-8B-Instruct')
     # response = llm_call(messages, model_name, pipeline=pipeline)
     # print(response)
-    dataset = 'Truthful_QA'
-    dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/truthfulqa_mc_task.json'
-    model_name = 'Llama'
-    output_file_name = 'result/Llama3_8B_raw.json'
-    full_flag = False
+    dataset = 'Temporal_QA'
+    dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/dev.json'
+    model_name = 'Mistral'
+    output_file = open('result/TemporalQA/{}_raw.json'.format(model_name), 'w')
+    full_flag = True
     if model_name == 'Mistral':
         model, tokenizer = load_llm(model_name, '/data/share_weight/mistral-7B-v0.2-instruct')
     elif model_name == 'Llama':
         pipeline = load_llm(model_name, '/data/share_weight/Meta-Llama-3-8B-Instruct')
 
     data = read_data(dataset, dataset_path)
-    if not full_flag:
-        
+    if full_flag:
         for line in tqdm(data):
-            prompt = prompt_fomular(line, dataset)
-            # print('-'*50 + 'PROMPT' + '-'*50)
-            # print(prompt)
+            prompt = prompt_fomular(line, dataset, model=model_name)
             messages = [{"role": "user", "content": prompt}]
             if model_name == 'Mistral':
                 response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
@@ -59,9 +66,19 @@ if __name__ == '__main__':
                 response = llm_call(messages, model_name, pipeline=pipeline)
             line['llm_response'] = response
             output_file.write(json.dumps(line, ensure_ascii=False) + '\n')
-            # print('-'*50 + 'RESPONSE' + '-'*50)
-            # print(response)
-            # if i >= 5:
-            #     break
     else:
-        output_file = open(, 'w')
+        for i, line in enumerate(data):
+            prompt = prompt_fomular(line, dataset, model=model_name)
+            print('-'*50 + 'PROMPT' + '-'*50)
+            print(prompt)
+            messages = [{"role": "user", "content": prompt}]
+            if model_name == 'Mistral':
+                response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
+            elif model_name == 'Llama':
+                response = llm_call(messages, model_name, pipeline=pipeline)
+            line['llm_response'] = response
+            output_file.write(json.dumps(line, ensure_ascii=False) + '\n')
+            print('-'*50 + 'RESPONSE' + '-'*50)
+            print(response)
+            if i >= 5:
+                break
