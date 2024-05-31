@@ -38,26 +38,30 @@ if __name__ == '__main__':
     dataset = 'Truthful_QA'
     dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/truthfulqa_mc_task.json'
     model_name = 'Llama'
-    output_file = open('result/Llama3_8B_raw.json', 'w')
-
+    output_file_name = 'result/Llama3_8B_raw.json'
+    full_flag = False
     if model_name == 'Mistral':
         model, tokenizer = load_llm(model_name, '/data/share_weight/mistral-7B-v0.2-instruct')
     elif model_name == 'Llama':
         pipeline = load_llm(model_name, '/data/share_weight/Meta-Llama-3-8B-Instruct')
 
     data = read_data(dataset, dataset_path)
-    for line in tqdm(data):
-        prompt = prompt_fomular(line, dataset)
-        # print('-'*50 + 'PROMPT' + '-'*50)
-        # print(prompt)
-        messages = [{"role": "user", "content": prompt}]
-        if model_name == 'Mistral':
-            response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
-        elif model_name == 'Llama':
-            response = llm_call(messages, model_name, pipeline=pipeline)
-        line['llm_response'] = response
-        output_file.write(json.dumps(line, ensure_ascii=False) + '\n')
-        # print('-'*50 + 'RESPONSE' + '-'*50)
-        # print(response)
-        # if i >= 5:
-        #     break
+    if not full_flag:
+        
+        for line in tqdm(data):
+            prompt = prompt_fomular(line, dataset)
+            # print('-'*50 + 'PROMPT' + '-'*50)
+            # print(prompt)
+            messages = [{"role": "user", "content": prompt}]
+            if model_name == 'Mistral':
+                response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
+            elif model_name == 'Llama':
+                response = llm_call(messages, model_name, pipeline=pipeline)
+            line['llm_response'] = response
+            output_file.write(json.dumps(line, ensure_ascii=False) + '\n')
+            # print('-'*50 + 'RESPONSE' + '-'*50)
+            # print(response)
+            # if i >= 5:
+            #     break
+    else:
+        output_file = open(, 'w')
