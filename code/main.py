@@ -50,7 +50,7 @@ if __name__ == '__main__':
     model_name = 'Mistral'
     output_file_name = 'result/TemporalQA/{}_raw.json'.format(model_name)
     output_file = open(output_file_name, 'w')
-    full_flag = True
+    full_flag = False
     if model_name == 'Mistral':
         model, tokenizer = load_llm(model_name, '/data/share_weight/mistral-7B-v0.2-instruct')
     elif model_name == 'Llama':

@@ -90,9 +90,9 @@ def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do
         message = messages[-1]['content']
         history = messages[:-1]
         response, history = model.chat(tokenizer, message, history=history, do_sample=do_sample, max_length = (input_length + max_new_tokens))
-        return response, history
+        return response
     elif model_name == 'Baichuan':
-        response = model.chat(tokenizer, messages, do_sample=do_sample, max_length = (input_length + max_new_tokens))
+        response = model.chat(tokenizer, messages)
         return response
     elif model_name == 'Yi':
         input_ids = tokenizer.apply_chat_template(conversation=messages, tokenize=True, return_tensors='pt')
@@ -133,9 +133,9 @@ if __name__ == "__main__":
     # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
     # print(response)
     '''Qwen'''
-    # model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/Qwen1.5-7B-Chat')
-    # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, do_sample=True)
-    # print(response)
+    model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/Qwen1.5-7B-Chat')
+    response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, do_sample=True)
+    print(response)
     '''Yi'''
     # model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/Yi-1.5-9B-Chat')
     # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, do_sample=True)
