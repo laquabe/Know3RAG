@@ -1,5 +1,6 @@
 import json
 from tqdm import tqdm
+'''OpenQA follow skr $ midtermQA'''
 
 def eval_line(line, dataset, model, firstorlast='first'):
     if dataset == 'TruthfulQA':

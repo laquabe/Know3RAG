@@ -1,2 +1,2 @@
-export CUDA_VISIBLE_DEVICES=4,5
-python code/main.py
+export CUDA_VISIBLE_DEVICES=8,9
+python code/LLM_calls.py
