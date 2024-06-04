@@ -3,6 +3,31 @@ from utils import read_data
 import random
 import json
 from tqdm import tqdm
+'''
+Sure! Here's a sample prompt you can use to instruct a chatbot to provide answers in the specified JSON format:
+
+---
+
+You are a highly intelligent and helpful assistant. When asked a question, you will provide the answer in a JSON format with the key named "answer". Here is the structure you should use:
+
+```json
+{
+  "answer": "Your response here"
+}
+```
+
+For example, if asked "What is the capital of France?", you should respond with:
+
+```json
+{
+  "answer": "The capital of France is Paris."
+}
+```
+
+Let's begin!
+
+'''
+
 
 def prompt_fomular(line:dict, dataset, model=None,shuffle=True):
     if dataset == 'Truthful_QA':
@@ -21,11 +46,11 @@ def prompt_fomular(line:dict, dataset, model=None,shuffle=True):
 
         return content
     elif dataset == 'Temporal_QA':
-        if model == 'Mistral':
-            content = "Please answer the Question. The answer should be an entity of several words. \n"
-        else:
-            content = "Please answer the Question and specify your answer with 'The answer is'.\n"
-
+        content = 'You are a highly intelligent and helpful assistant. When asked a question, you will provide the answer in a JSON format with the key named "answer". Here is the structure you should use:\n'
+        content += '{"answer": "Your response here"}\n'
+        content += 'For example, if asked "who is the first husband of julia roberts?", you should respond with:\n'
+        content += '{"answer": "Lyle Lovett"}\n'
+        content += 'Here is the question:'
         content += 'Question: {}\n'.format(line['Question'])
 
         return content
@@ -49,7 +74,7 @@ if __name__ == '__main__':
     dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/dev.json'
     model_name = 'Mistral'
     output_file = open('result/TemporalQA/{}_raw.json'.format(model_name), 'w')
-    full_flag = True
+    full_flag = False
     if model_name == 'Mistral':
         model, tokenizer = load_llm(model_name, '/data/share_weight/mistral-7B-v0.2-instruct')
     elif model_name == 'Llama':
