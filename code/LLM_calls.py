@@ -55,8 +55,11 @@ def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do
 
         generated_ids = model.generate(model_inputs, max_new_tokens=max_new_tokens, do_sample=do_sample)
         decoded = tokenizer.batch_decode(generated_ids)
-        
-        return decoded[0]   # include input, need extra process
+        response = decoded[0]
+        res_pos = response.find('[/INST]')
+        response = response[res_pos + len('[/INST]'):]
+        response = response.strip()
+        return response # include input, need extra process
     elif model_name == 'Llama':
         prompt = pipeline.tokenizer.apply_chat_template(
             messages, 
