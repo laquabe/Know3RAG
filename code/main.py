@@ -3,6 +3,7 @@ from utils import read_data
 import random
 import json
 from tqdm import tqdm
+import argparse
 '''
 Sure, here's a prompt you can give to your friend for the question-answer task:
 
@@ -94,34 +95,28 @@ def prompt_fomular(line:dict, dataset, model=None, shuffle=True, extral_ask=True
         return content
         
 if __name__ == '__main__':
-    # messages = [
-    #     {"role": "user", "content": "What is your favourite condiment?"},
-    #     {"role": "assistant", "content": "Well, I'm quite partial to a good squeeze of fresh lemon juice. It adds just the right amount of zesty flavour to whatever I'm cooking up in the kitchen!"},
-    #     {"role": "user", "content": "Do you have mayonnaise recipes?"}
-    # ]
-    # model_name = 'Mistral'
-    # '''Model & Tokenizer'''
-    # model, tokenizer = load_llm(model_name, '/data/share_weight/mistral-7B-v0.2-instruct')
-    # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
-    # print(response)
-    '''Pipeline'''
-    # pipeline = load_llm(model_name, '/data/share_weight/Meta-Llama-3-8B-Instruct')
-    # response = llm_call(messages, model_name, pipeline=pipeline)
-    # print(response)
-    dataset_name = 'Temporal'
-    model_name = 'Mistral'
-    exp_name = 'raw'
-    full_flag = True
+    parser = argparse.ArgumentParser(description='DocFixQA args')
+    parser.add_argument('--dataset_name', '-d', type=str, required=True, help="Dataset Name")
+    parser.add_argument('--model_name', '-m', type=str, required=True, help='Model Name')
+    parser.add_argument('--exp_name','-e',type=str, required=True, default='test', help='Exp Name')
+    parser.add_argument('--model_path','-p',type=str, required=True, help="Path to model")
+
+    args = parser.parse_args()
+    dataset_name = args.dataset_name
+    model_name = args.model_name
+    exp_name = args.exp_name
+    full_flag = False
 
     dataset = '{}_QA'.format(dataset_name)
     dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/{}QA/dev.json'.format(dataset_name)
     output_file_name = 'result/{}QA/{}/{}.json'.format(dataset_name, model_name, exp_name)
     output_file = open(output_file_name, 'w')
     
+    assert model_name.lower() in args.model_path.lower()
     if model_name == 'Mistral':
-        model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/mistral-7B-v0.2-instruct')
+        model, tokenizer = load_llm(model_name, args.model_path)
     elif model_name == 'Llama':
-        pipeline = load_llm(model_name, '/data/xkliu/LLMs/models/Meta-Llama-3-8B-Instruct')
+        pipeline = load_llm(model_name, args.model_path)
 
     data = read_data(dataset, dataset_path)
     if full_flag:
