@@ -18,7 +18,7 @@ def load_llm(model_name, model_path):
             device_map='auto',
             )
         return pipeline
-    elif model_name == 'GLM':
+    elif model_name == 'GLM3':
         tokenizer = AutoTokenizer.from_pretrained(model_path, device_map='auto', trust_remote_code=True)
         model = AutoModel.from_pretrained(model_path, device_map='auto', trust_remote_code=True).half().cuda()
         model = model.eval()
@@ -49,7 +49,6 @@ def get_length_simple(messages):
     return input_length
 
 def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do_sample=False, max_new_tokens=1024):
-    '''GLM messages str'''
     if model_name == 'Mistral':
         model_inputs = tokenizer.apply_chat_template(messages, return_tensors="pt")
 
@@ -88,7 +87,7 @@ def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do
             )
 
         return outputs[0]["generated_text"][len(prompt):]
-    elif model_name == 'GLM':
+    elif model_name == 'GLM3':
         input_length = get_length_simple(messages)
         message = messages[-1]['content']
         history = messages[:-1]
