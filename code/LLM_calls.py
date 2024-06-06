@@ -51,8 +51,7 @@ def get_length_simple(messages):
 def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do_sample=False, max_new_tokens=1024):
     '''GLM messages str'''
     if model_name == 'Mistral':
-        model_inputs = tokenizer.apply_chat_template(messages, return_tensors="pt")
-
+        model_inputs = tokenizer.apply_chat_template(messages, return_tensors="pt").to('cuda')
         generated_ids = model.generate(model_inputs, max_new_tokens=max_new_tokens, do_sample=do_sample)
         decoded = tokenizer.batch_decode(generated_ids)
         response = decoded[0]
