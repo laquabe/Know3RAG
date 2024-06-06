@@ -105,7 +105,7 @@ if __name__ == '__main__':
     dataset_name = args.dataset_name
     model_name = args.model_name
     exp_name = args.exp_name
-    full_flag = False
+    full_flag = True
 
     dataset = '{}_QA'.format(dataset_name)
     dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/{}QA/dev.json'.format(dataset_name)
