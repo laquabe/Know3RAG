@@ -37,16 +37,13 @@ def load_llm(model_name, model_path):
         tokenizer = AutoTokenizer.from_pretrained(model_path)
         model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype="auto", device_map="auto").eval()
         return model, tokenizer
+    elif model_name == 'GLM4':
+        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        model = model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, trust_remote_code=True).to('cuda').eval()
+        return model, tokenizer
     else:
         print('Error! No support models')
     print('Model load sucessfully!')
-
-def get_length_simple(messages):
-    input_length = 0
-    for m in messages:
-        input_length += len(m['content'])
-    
-    return input_length
 
 def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do_sample=False, max_new_tokens=1024):
     if model_name == 'Mistral':
@@ -57,39 +54,20 @@ def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do
         res_pos = response.find('[/INST]')
         response = response[res_pos + len('[/INST]'):]
         response = response.strip()
-        return response # include input, need extra process
+        return response
     elif model_name == 'Llama':
-        prompt = pipeline.tokenizer.apply_chat_template(
-            messages, 
-            tokenize=False, 
-            add_generation_prompt=True
-        )
-        terminators = [
-            pipeline.tokenizer.eos_token_id,
-            pipeline.tokenizer.convert_tokens_to_ids("<|eot_id|>")
-        ]
+        prompt = pipeline.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        terminators = [pipeline.tokenizer.eos_token_id, pipeline.tokenizer.convert_tokens_to_ids("<|eot_id|>")]
         if do_sample:
-            outputs = pipeline(
-                prompt,
-                max_new_tokens=max_new_tokens,
-                eos_token_id=terminators,
-                do_sample=do_sample,
-                temperature=0.6,
-                top_p=0.9,
-            )
+            outputs = pipeline(prompt, max_new_tokens=max_new_tokens, eos_token_id=terminators, do_sample=do_sample, temperature=0.6, top_p=0.9)
         else:
-            outputs = pipeline(
-                prompt,
-                max_new_tokens=max_new_tokens,
-                eos_token_id=terminators,
-                do_sample=do_sample,
-            )
+            outputs = pipeline(prompt, max_new_tokens=max_new_tokens, eos_token_id=terminators, do_sample=do_sample)
 
         return outputs[0]["generated_text"][len(prompt):]
     elif model_name == 'GLM3':
-        input_length = get_length_simple(messages)
         message = messages[-1]['content']
         history = messages[:-1]
+        input_length = len(tokenizer.build_chat_input(message, history=history)['input_ids'][0])
         response, history = model.chat(tokenizer, message, history=history, do_sample=do_sample, max_length = (input_length + max_new_tokens))
         return response
     elif model_name == 'Baichuan':
@@ -107,6 +85,19 @@ def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do
         generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)]
         response = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
         return response
+    elif model_name == 'GLM4':
+        inputs = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=True, return_tensors="pt", return_dict=True)
+        input_length = len(inputs['input_ids'][0])
+        inputs = inputs.to('cuda')
+        gen_kwargs = {"max_length": input_length + max_new_tokens, "do_sample": do_sample}
+        if do_sample:
+            gen_kwargs['top_k'] = 1
+        with torch.no_grad():
+            outputs = model.generate(**inputs, **gen_kwargs)
+            outputs = outputs[:, inputs['input_ids'].shape[1]:]
+        
+            return tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
     else:
         print('Error! No models use')
 
@@ -116,7 +107,7 @@ if __name__ == "__main__":
         {"role": "assistant", "content": "Well, I'm quite partial to a good squeeze of fresh lemon juice. It adds just the right amount of zesty flavour to whatever I'm cooking up in the kitchen!"},
         {"role": "user", "content": "Do you have mayonnaise recipes?"}
     ]
-    model_name = 'Qwen'
+    model_name = 'GLM3'
     '''Mistarl'''
     # model, tokenizer = load_llm(model_name, '')
     # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
@@ -125,19 +116,23 @@ if __name__ == "__main__":
     # pipeline = load_llm(model_name, '/data/share_weight/Meta-Llama-3-8B-Instruct')
     # response = llm_call(messages, model_name, pipeline=pipeline)
     # print(response)
-    '''GLM'''
+    '''GLM3'''
     # model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/chatglm3-6b')
-    # response, history = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
-    # print(response, history)
+    # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
+    # print(response)
     '''Baichuan'''
     # model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/Baichuan2-7B-Chat')
     # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
     # print(response)
     '''Qwen'''
-    model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/Qwen1.5-7B-Chat')
-    response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, do_sample=True)
-    print(response)
+    # model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/Qwen1.5-7B-Chat')
+    # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, do_sample=True)
+    # print(response)
     '''Yi'''
     # model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/Yi-1.5-9B-Chat')
+    # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, do_sample=True)
+    # print(response)
+    '''GLM4'''
+    # model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/glm-4-9b-chat')
     # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, do_sample=True)
     # print(response)
