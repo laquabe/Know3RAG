@@ -41,6 +41,9 @@ def load_llm(model_name, model_path):
         tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
         model = model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, trust_remote_code=True).to('cuda').eval()
         return model, tokenizer
+    elif model_name == 'Zephyr':
+        pipe = transformers.pipeline("text-generation", model=model_path, torch_dtype=torch.bfloat16, device_map="auto")
+        return pipe
     else:
         print('Error! No support models')
     print('Model load sucessfully!')
@@ -97,7 +100,19 @@ def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do
             outputs = outputs[:, inputs['input_ids'].shape[1]:]
         
             return tokenizer.decode(outputs[0], skip_special_tokens=True)
+    elif model_name == 'Zephyr':
+        prompt = pipeline.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        if do_sample:
+            outputs = pipeline(prompt, max_new_tokens=1024, do_sample=True, temperature=0.7, top_k=50, top_p=0.95)
+        else:
+            outputs = pipeline(prompt, max_new_tokens=1024, do_sample=True)
+
+        gen_text = outputs[0]["generated_text"]
+        gen_start_pos = gen_text.rfind('<|assistant|>')  # zephyr
+        gen_text = gen_text[gen_start_pos:]
+        gen_text = gen_text.lstrip('<|assistant|>').strip()
         
+        return gen_text
     else:
         print('Error! No models use')
 
