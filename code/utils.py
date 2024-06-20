@@ -12,3 +12,4 @@ def read_data(dataset_name, file_path):
 
 if __name__ == "__main__":
     read_data('Truthful_QA', '/data/xkliu/LLMs/DocFixQA/datasets/truthfulqa_mc_task.json')
+    

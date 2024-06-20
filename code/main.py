@@ -100,15 +100,22 @@ if __name__ == '__main__':
     parser.add_argument('--model_name', '-m', type=str, required=True, help='Model Name')
     parser.add_argument('--exp_name','-e',type=str, required=True, default='test', help='Exp Name')
     parser.add_argument('--model_path','-p',type=str, required=True, help="Path to model")
+    parser.add_argument('--test', action='store_true', help="if Test", default=None)
 
     args = parser.parse_args()
     dataset_name = args.dataset_name
     model_name = args.model_name
     exp_name = args.exp_name
-    full_flag = True
+    if args.test:
+        full_flag = False
+    else:
+        full_flag = True
 
     dataset = '{}_QA'.format(dataset_name)
-    dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/{}QA/dev.json'.format(dataset_name)
+    if dataset_name == 'Temporal':
+        dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/{}QA/dev.json'.format(dataset_name)
+    elif dataset_name == 'Truthful':
+        dataset_name = '/data/xkliu/LLMs/DocFixQA/datasets/TruthfulQA/truthfulqa_mc_task.json'
     output_file_name = 'result/{}QA/{}/{}.json'.format(dataset_name, model_name, exp_name)
     output_file = open(output_file_name, 'w')
     
