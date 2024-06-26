@@ -98,7 +98,7 @@ def eval_line(line, dataset, model_name, answer_key,firstorlast='first'):
         choice = None
         for cand in candidates.keys():
             if firstorlast == 'last':
-                cand_pos = ans.find(cand)
+                cand_pos = ans.rfind(cand)
                 if cand_pos == -1:
                     continue
                 if ans_pos == -1:
