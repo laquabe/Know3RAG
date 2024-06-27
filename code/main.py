@@ -5,58 +5,66 @@ import json
 from tqdm import tqdm
 import argparse
 '''
-Certainly! Here’s a prompt for your friend to help them determine whether a given reference is useful for answering a specific question, along with some hints to guide their decision-making process.
+Sure! Here's a prompt you can send to your friend:
 
 ---
 
-**Prompt:**
-
 Hi [Friend's Name],
 
-I need your assistance in filtering useful information from references. For each question I provide, I'll also give you a reference. Your task is to determine if the reference is useful in answering the question. A reference is considered useful if it provides information that helps answer the question, even if it doesn't fully answer it.
+I have a problem that I need to break down into sub-problems, and I need your help. Could you please extract the key entities from the problem and come up with one piece of information that needs to be collected for each entity? You don't need to answer these questions; just identify what information should be gathered.
 
-Please respond with a JSON object containing a key named "useful" with a value of either "yes" or "no". If you're not sure whether the reference is useful, please answer "yes".
+To give you a clearer idea, here's an example problem and how it should be broken down:
 
-**Hints to Determine Usefulness:**
+**Example Problem:**
+"Who was the current President of the United States when Zootopia was released?"
 
-1. **Relevance**: Does the reference directly relate to the topic of the question? Even partial relevance counts.
-2. **Information Quality**: Does the reference provide accurate and credible information?
-3. **Detail**: Does the reference include details that help explain or support the answer to the question?
-4. **Context**: Does the reference give contextual information that is helpful for understanding the question better?
-5. **Breadth**: Does the reference cover a broad aspect of the topic that might indirectly help answer the question?
-
-**Example:**
-
-**Question**: What are the health benefits of a Mediterranean diet?
-
-**Reference**: A study from the Journal of Nutrition discussing the effects of the Mediterranean diet on heart health.
-
-**Response**:
+**Entities and Information Needed:**
 ```json
 {
-  "useful": "yes"
+  "President of the United States": "Name of the President",
+  "Zootopia": "Release date of the movie"
 }
 ```
 
-Thank you for your help!
+Here's the problem I need your help with:
 
-Best,  
+**Problem:**
+[Insert your problem here]
+
+Could you please provide the output in a similar JSON format?
+
+Thank you so much for your help!
+
+Best,
 [Your Name]
 
 ---
 
-Feel free to customize the prompt as needed!
+Feel free to customize the message further as needed!
 '''
+def prompt_fomular_decompose_question(line:dict):
+    content = 'I have a problem that I need to break down into sub-problems. please extract the key entities from the problem and come up with one piece of information that needs to be collected for each entity in JSON format. You don\'t need to answer these questions; just identify what information should be gathered.\n'
+    content += 'To give you a clearer idea, here\'s an example problem and how it should be broken down:\n\n'
+    content += '**Example Problem:**\nWho was the current President of the United States when Zootopia was released?\n'
+    content += '**Entities and Information Needed:**\n'
+    content += '{"President of the United States": "Who was the President of the United States?", "Zootopia": "When was Zootopia released?"}\n\n'
+    content += 'Here\'s the problem I need your help with:\n'
+    content += '**Problem:**\n{}'.format(line['Question'])
+
+    return content
+
 def prompt_fomular_retrive_judge(line:dict):
-    content = 'I will provide you with a question and a reference that may or may not be useful. Your task is to determine if the reference is useful in answering the question. A reference is considered useful if it provides information that helps answer the question, even if it doesn\'t fully answer it.\n'
+    # content = 'I will provide you with a question and a reference that may or may not be useful. Your task is to determine if the reference is useful in answering the question. A reference is considered useful if it provides information that helps answer the question, even if it doesn\'t fully answer it.\n'
+    content = 'I will provide you with a question and a reference that may or may not be useful. Your task is to determine if the reference is useful in answering the question. A reference is considered useful if it provides information that helps answer the question.\n'
     content += 'Please respond with a JSON object containing a key named "useful" with a value of either "yes" or "no". If you\'re not sure whether the reference is useful, please answer "yes", which is like:'
     content += '{"reason": "<detailed reasoning why the reference is useful or not>", "useful": "<yes or no>"}\n\n'
     content += '**Hints to Determine Usefulness:**\n\n'
-    content += '1. **Relevance**: Does the reference directly relate to the topic of the question? Even partial relevance counts.\n'
+    # content += '1. **Relevance**: Does the reference directly relate to the topic of the question? Even partial relevance counts.\n'
+    content += '1. **Relevance**: Does the reference directly relate to the topic of the question?\n'
     content += '2. **Information Quality**: Does the reference provide accurate and credible information?\n'
     content += '3. **Detail**: Does the reference include details that help explain or support the answer to the question?\n'
     content += '4. **Context**: Does the reference give contextual information that is helpful for understanding the question better?\n'
-    content += '5. **Breadth**: Does the reference cover a broad aspect of the topic that might indirectly help answer the question?\n\n'
+    # content += '5. **Breadth**: Does the reference cover a broad aspect of the topic that might indirectly help answer the question?\n\n'
     content += 'Below are two specific examples to guide you:\n\n'
     content += '**Example 1: Positive Case**\n'
     content += '*Question:* What is the capital of France?\n'
@@ -67,8 +75,8 @@ def prompt_fomular_retrive_judge(line:dict):
     content += '*Reference:* France retains its centuries-long status as a global centre of art, science, and philosophy. It hosts the third-largest number of UNESCO World Heritage Sites and is the world\'s leading tourist destination, receiving over 89 million foreign visitors in 2018.\n'
     content += '*Response:* {"reason": "The reference does not mention the capital of France or provide any information that helps answer the question. It talks about France\'s cultural and tourist significance but does not address the specific query.", "useful": "no"}\n\n'
     content += 'Now here are the question and reference.\n'
-    content += '*Question:* {}\n'.format(line['Question'])
-    content += '*Reference:* {}\n'.format(line['summary'])
+    content += '*Question:* {}\n'.format(line['sub_question'])
+    content += '*Reference:* {}\n'.format(line['passages'])
     content += '*Response:* '
 
     return content
@@ -142,6 +150,7 @@ if __name__ == '__main__':
     parser.add_argument('--exinfo_judge', action='store_true', help="if External Information Filter by Pair", default=None)
     parser.add_argument('--line', action='store_true', help="if Process by line", default=None)
     parser.add_argument('--summary', action='store_true', help="Summary Process", default=None)
+    parser.add_argument('--decompose', action='store_true', help="Decompose the Question into Subqustion")
 
     args = parser.parse_args()
     dataset_name = args.dataset_name
@@ -153,6 +162,7 @@ if __name__ == '__main__':
     exinfo_judge = True if args.exinfo_judge else False
     line_flag = True if args.line else False
     summary_flag = True if args.summary else False
+    decompose_flag = True if args.decompose else False
 
     dataset = '{}_QA'.format(dataset_name)
     if args.dataset_path:
@@ -186,6 +196,8 @@ if __name__ == '__main__':
                 prompt = prompt_fomular_retrive_judge(line)
             elif summary_flag:
                 prompt = prompt_fomular_summary(line)
+            elif decompose_flag:
+                prompt = prompt_fomular_decompose_question(line)
             else:
                 prompt = prompt_fomular(line, dataset, model=model_name, extral_ask=extral_ask, rag=rag_flag)
 
@@ -205,6 +217,8 @@ if __name__ == '__main__':
                 prompt = prompt_fomular_retrive_judge(line)
             elif summary_flag:
                 prompt = prompt_fomular_summary(line)
+            elif decompose_flag:
+                prompt = prompt_fomular_decompose_question(line)
             else:
                 prompt = prompt_fomular(line, dataset, model=model_name, extral_ask=extral_ask, rag=rag_flag)
 
@@ -219,5 +233,5 @@ if __name__ == '__main__':
             output_file.write(json.dumps(line, ensure_ascii=False) + '\n')
             print('-'*50 + 'RESPONSE' + '-'*50)
             print(response)
-            if i >= 3:
+            if i >= 10:
                 break
