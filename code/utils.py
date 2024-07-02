@@ -39,6 +39,17 @@ def list2pair(input_file_name, output_file_name, func, line_mode=True):
                     del new_line['passages']
                     new_line['passages'] = s
                     output_f.write(json.dumps(new_line, ensure_ascii=False) + '\n')
+            if func == 'knowledge_card':
+                src = line['generate']
+                for s in src:
+                    new_line = copy.deepcopy(line)
+                    del new_line['passages']
+                    del new_line['generate']
+                    if len(s) == 0:
+                        continue
+                    new_line['passages'] = s
+                    output_f.write(json.dumps(new_line, ensure_ascii=False) + '\n')
+
             if func == 'decompose':
                 res, json_flag = json_decode(line['llm_response'])
                 if json_flag:
@@ -201,13 +212,13 @@ def read_summary_map(summary_file_name):
 
 if __name__ == "__main__":
     # read_data('Truthful_QA', '/data/xkliu/LLMs/DocFixQA/datasets/truthfulqa_mc_task.json')
-    # list2pair('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/Llama/decompose.json',
-    #           '/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/decompose_pair_dev.json',
-    #           'decompose')
-    summary_dict = read_summary_map('/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/summary_pair_dev.json')
-    pair_merge('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/Llama/exinfo_judge_sub.json',
-                 '/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/filter_dev.json',
-                 'filter', summary_map_dict=summary_dict)
+    list2pair('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/cards/knowledge-card-1btokens.json',
+              '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/tmp/knowledge-card-1btokens.json',
+              'knowledge_card')
+    # summary_dict = read_summary_map('/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/summary_pair_dev.json')
+    # pair_merge('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/Llama/exinfo_judge_sub.json',
+    #              '/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/filter_dev.json',
+    #              'filter', summary_map_dict=summary_dict)
     # process_by_line('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/Llama/summary.json',
     #                 '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/summary.json',
     #                 'summary')
