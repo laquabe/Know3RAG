@@ -71,20 +71,23 @@ def get_answer_ref(prediction, answer):
     if match:
         json_str = match.group()
         try:
-            json_str = json.loads(json_str)
-            if json_str['answer'] == None:
+            json_dict = json.loads(json_str)
+            if json_dict['answer'] == None:
                 return ''
-            return json_str['answer']
+            return json_dict['answer']
         except:
             prediction = json_str   
     # if have answer, return answer
-    # if not or phrase badly, return the first sentence (here we may use last)
+    # if not or phrase badly, return the last sentence as we first output reason
     nlp_text = nlp(prediction).sents
     sentences = [str(sent).strip() for sent in nlp_text]
     for sent in sentences:
         if answer.lower() in sent.lower():
             return answer
-    return sentences[0].strip()
+    if len(sentences) > 0:
+        return sentences[-1].strip()
+    else:
+        return ''
 
 def eval_line(line, dataset, model_name, answer_key,firstorlast='first'):
     if dataset == 'TruthfulQA':

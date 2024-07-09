@@ -22,6 +22,12 @@ def is_discontinuous_substring(main_string:str, substring:str):
     return True
 
 def list2pair(input_file_name, output_file_name, func, line_mode=True):
+    '''
+    raw: list2pair
+    knowledge_card: k generate list to pair
+    decompose: sub question list to pair with passages
+    subques_only: only sub question
+    '''
     with open(input_file_name) as input_f, \
         open(output_file_name, 'w') as output_f:
         if not line_mode:
@@ -45,11 +51,20 @@ def list2pair(input_file_name, output_file_name, func, line_mode=True):
                     new_line = copy.deepcopy(line)
                     del new_line['passages']
                     del new_line['generate']
+                    s = s.split('.')
+                    s = '.'.join(s[:-1])
+                    s += '.'
                     if len(s) == 0:
                         continue
                     new_line['passages'] = s
                     output_f.write(json.dumps(new_line, ensure_ascii=False) + '\n')
-
+            if func == 'subques_only':
+                new_line = copy.deepcopy(line)
+                new_line['sub_question'] = line['Question']
+                output_f.write(json.dumps(new_line, ensure_ascii=False) + '\n')
+                for sub_q in line['sub_questions'].values():
+                    new_line['sub_question'] = sub_q
+                    output_f.write(json.dumps(new_line, ensure_ascii=False) + '\n')
             if func == 'decompose':
                 res, json_flag = json_decode(line['llm_response'])
                 if json_flag:
@@ -138,15 +153,20 @@ def pair_merge(input_file_name, output_file_name, func, summary_map_dict = None)
             if l_id not in id2src.keys():
                 new_l = copy.deepcopy(line)
                 del new_l['passages']
-                del new_l['llm_response']
+                if 'llm_response' in new_l.keys():
+                    del new_l['llm_response']
                 id2src[l_id] = new_l
                 id2info[l_id] = []
             if func == 'filter':
                 # if no then ignore the exinfo
-                line['summary'] = summary_map_dict[line['Id']][line['passages']]
+                try:
+                    line['summary'] = summary_map_dict[line['Id']][line['passages']]
+                except:
+                    line['summary'] = line['passages']
                 if filter_exinfo(line['llm_response']):
                     ex_info_list = id2info[l_id]
-                    ex_info_list.append(line['summary'])
+                    if line['summary'] not in ex_info_list:
+                        ex_info_list.append(line['summary'])
                     id2info[l_id] = ex_info_list
                 # else:
                 #     ex_info_list = id2info[l_id]
@@ -180,10 +200,21 @@ def json_decode(ans:str):
 def summary_process(line:dict):
     res_json, flag = json_decode(line['llm_response'])
     if flag:
-        return res_json['summary'], flag
+        if 'summary' in res_json.keys():
+            return res_json['summary'], flag
+        elif 'Summary' in res_json.keys():
+            return res_json['Summary'], flag
+        else:
+            print(res_json)
+            exit()
     return res_json, flag
 
-def process_by_line(input_file_name, output_file_name, func):
+def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None):
+    '''
+    map_decompose: deliver sub-question to passages
+    reference: phrase reference
+    add_reference: add pseudo reference as passages
+    '''
     with open(input_file_name) as input_f, \
         open(output_file_name, 'w') as output_f:
         error_num = 0
@@ -196,29 +227,75 @@ def process_by_line(input_file_name, output_file_name, func):
                 else:
                     line['summary'] = line['passages']
                     error_num += 1
+            if func == 'reference':
+                res, json_flag = json_decode(line['llm_response'])
+                if json_flag:
+                    line['pseudo_doc'] = res['reference_paragraph']
+                else:
+                    line['pseudo_doc'] = line['Question']
+                    error_num += 1
+            if func == 'add_reference':
+                line['passages'] = line['pseudo_doc']
+            if func == 'get_decompose':
+                res, json_flag = json_decode(line['llm_response'])
+                if json_flag:
+                    line['sub_questions'] = res
+                else:
+                    line['sub_questions'] = {}
+                    error_num += 1
+            if func == 'map_decompose':
+                subq_dict = id2subq_dict[line['Id']]
+                s = line['passages']
+                if len(subq_dict) > 0:
+                    write_flag = False
+                    # first search str in reference
+                    for ent, qes in subq_dict.items():
+                        if ent.lower() in s.lower():
+                            new_line = copy.deepcopy(line)
+                            new_line['sub_question'] = qes
+                            output_f.write(json.dumps(new_line, ensure_ascii=False) + '\n')
+                            write_flag = True
+                    if write_flag:
+                        continue
+                    new_line = copy.deepcopy(line)
+                    new_line['sub_question'] = new_line['Question']
+                    output_f.write(json.dumps(new_line, ensure_ascii=False) + '\n')
+                    continue
+                else:
+                    error_num += 1
+                    new_line = copy.deepcopy(line)
+                    new_line['sub_question'] = new_line['Question']
+                    output_f.write(json.dumps(new_line, ensure_ascii=False) + '\n')
+                    continue
+
             output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
         print(error_num)
 
-def read_summary_map(summary_file_name):
+def read_map(input_file_name, map_func):
+    '''all map use id as key'''
     id2passage_dict = {}
-    with open(summary_file_name) as inpuf_f:
+    with open(input_file_name) as inpuf_f:
         for line in inpuf_f:
             line = json.loads(line.strip())
-            passage2summary_dict = id2passage_dict.get(line['Id'], {})
-            passage2summary_dict[line['passages']] = line['summary']
-            id2passage_dict[line['Id']] = passage2summary_dict
+            if map_func == 'summary':
+                passage2summary_dict = id2passage_dict.get(line['Id'], {})
+                passage2summary_dict[line['passages']] = line['summary']
+                id2passage_dict[line['Id']] = passage2summary_dict
+            elif map_func == 'sub_question':
+                id2passage_dict[line['Id']] = line['sub_questions']
 
     return id2passage_dict
 
 if __name__ == "__main__":
     # read_data('Truthful_QA', '/data/xkliu/LLMs/DocFixQA/datasets/truthfulqa_mc_task.json')
-    list2pair('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/cards/knowledge-card-1btokens.json',
-              '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/tmp/knowledge-card-1btokens.json',
-              'knowledge_card')
-    # summary_dict = read_summary_map('/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/summary_pair_dev.json')
-    # pair_merge('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/Llama/exinfo_judge_sub.json',
-    #              '/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/filter_dev.json',
+    # list2pair('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/pseudo_knowledge_card_all_raw.json',
+    #           '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/pseudo_knowledge_card_all.json',
+    #           'knowledge_card')
+    # summary_dict = read_map('/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/summary_all.json', map_func='summary')
+    # pair_merge('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/all_judge_sub.json',
+    #              '/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/knowledge_card_filter_dev.json',
     #              'filter', summary_map_dict=summary_dict)
-    # process_by_line('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/Llama/summary.json',
-    #                 '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/summary.json',
-    #                 'summary')
+    subq_dict = read_map('/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/decompose.json', 'sub_question')
+    process_by_line('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/pseudo_knowledge_card_all.json',
+                    '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/pseudo_knowledge_card_sub_pair.json',
+                    'map_decompose', id2subq_dict=subq_dict)

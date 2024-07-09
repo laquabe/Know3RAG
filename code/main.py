@@ -5,43 +5,74 @@ import json
 from tqdm import tqdm
 import argparse
 '''
-Sure! Here's a prompt you can send to your friend:
+Sure! Here is a prompt you can give to your friend, along with some hints and an example.
 
 ---
 
 Hi [Friend's Name],
 
-I have a problem that I need to break down into sub-problems, and I need your help. Could you please extract the key entities from the problem and come up with one piece of information that needs to be collected for each entity? You don't need to answer these questions; just identify what information should be gathered.
+I need your help with a task. I have a list of questions and I'd like you to write a reference paragraph for each question. These paragraphs will assist the person coming after me in amplifying and answering the questions concisely. You don't need to answer the questions directly, just provide enough information to guide the next person.
 
-To give you a clearer idea, here's an example problem and how it should be broken down:
+Please output your responses in JSON format.
 
-**Example Problem:**
-"Who was the current President of the United States when Zootopia was released?"
+Here's an example to illustrate:
 
-**Entities and Information Needed:**
+### Example Question:
+"Where is the capital of France?"
+
+### Example Output:
 ```json
 {
-  "President of the United States": "Name of the President",
-  "Zootopia": "Release date of the movie"
+  "question": "Where is the capital of France?",
+  "reference_paragraph": "The capital of France is Paris. Paris, known for its historical landmarks such as the Eiffel Tower and the Louvre Museum, is located in the northern part of the country along the Seine River. It is a major European city and a global center for art, fashion, and culture."
 }
 ```
 
-Here's the problem I need your help with:
+### Hints:
+1. Provide context or background information relevant to the question.
+2. Include key facts, important dates, or notable figures if applicable.
+3. Keep the paragraphs concise but informative enough to guide a more detailed response.
 
-**Problem:**
-[Insert your problem here]
+Here's another example for clarity:
 
-Could you please provide the output in a similar JSON format?
+### Example Question:
+"What is the process of photosynthesis?"
 
-Thank you so much for your help!
+### Example Output:
+```json
+{
+  "question": "What is the process of photosynthesis?",
+  "reference_paragraph": "Photosynthesis is the process by which green plants and some other organisms use sunlight to synthesize foods with the help of chlorophyll in their cells. The process converts carbon dioxide and water into glucose and oxygen. Photosynthesis occurs mainly in the chloroplasts of plant cells and involves two main stages: the light-dependent reactions and the Calvin cycle."
+}
+```
 
-Best,
-[Your Name]
+I appreciate your help with this. Thank you!
 
 ---
 
-Feel free to customize the message further as needed!
+Feel free to let me know if you need any adjustments or additional information.
 '''
+def prompt_fomular_reference_generate(line:dict, sub=False):
+    content = 'I have a list of questions and I\'d like you to write a reference paragraph for each question. These paragraphs will assist the person coming after me in amplifying and answering the questions concisely. You don\'t need to answer the questions directly, just provide enough information to guide the next person.\n'
+    content += 'Please output your responses in JSON format containing a key named "reference_paragraph".\n'
+    content += 'Here\'s an example to illustrate:\n\n'
+    content += '### Example Question:\n'
+    content += "Where is the capital of France?\n"
+    content += '### Example Output:\n'
+    content += '{"question": "Where is the capital of France?", "reference_paragraph": "The capital of France is Paris. Paris, known for its historical landmarks such as the Eiffel Tower and the Louvre Museum, is located in the northern part of the country along the Seine River. It is a major European city and a global center for art, fashion, and culture."}\n\n'
+    content += '### Hints:\n'
+    content += '1. Provide context or background information relevant to the question.\n'
+    content += '2. Include key facts, important dates, or notable figures if applicable.\n'
+    content += '3. Keep the paragraphs concise but informative enough to guide a more detailed response.\n\n'
+    content += 'Here is the question:'
+    if sub:
+        content += '### Question:\n{}\n'.format(line['sub_question'])
+    else:
+        content += '### Question:\n{}\n'.format(line['Question'])
+    content += 'Output:\n'
+
+    return content
+
 def prompt_fomular_decompose_question(line:dict):
     content = 'I have a problem that I need to break down into sub-problems. please extract the key entities from the problem and come up with one piece of information that needs to be collected for each entity in JSON format. You don\'t need to answer these questions; just identify what information should be gathered.\n'
     content += 'To give you a clearer idea, here\'s an example problem and how it should be broken down:\n\n'
@@ -150,7 +181,8 @@ if __name__ == '__main__':
     parser.add_argument('--exinfo_judge', action='store_true', help="if External Information Filter by Pair", default=None)
     parser.add_argument('--line', action='store_true', help="if Process by line", default=None)
     parser.add_argument('--summary', action='store_true', help="Summary Process", default=None)
-    parser.add_argument('--decompose', action='store_true', help="Decompose the Question into Subqustion")
+    parser.add_argument('--decompose', action='store_true', help="Decompose the Question into Subqustion", default=None)
+    parser.add_argument('--generate_reference', action='store_true', help="Generate Reference by LLM", default=None)
 
     args = parser.parse_args()
     dataset_name = args.dataset_name
@@ -163,6 +195,7 @@ if __name__ == '__main__':
     line_flag = True if args.line else False
     summary_flag = True if args.summary else False
     decompose_flag = True if args.decompose else False
+    gen_reference_flag = True if args.generate_reference else False
 
     dataset = '{}_QA'.format(dataset_name)
     if args.dataset_path:
@@ -198,6 +231,8 @@ if __name__ == '__main__':
                 prompt = prompt_fomular_summary(line)
             elif decompose_flag:
                 prompt = prompt_fomular_decompose_question(line)
+            elif gen_reference_flag:
+                prompt = prompt_fomular_reference_generate(line, sub=True)
             else:
                 prompt = prompt_fomular(line, dataset, model=model_name, extral_ask=extral_ask, rag=rag_flag)
 
@@ -219,6 +254,8 @@ if __name__ == '__main__':
                 prompt = prompt_fomular_summary(line)
             elif decompose_flag:
                 prompt = prompt_fomular_decompose_question(line)
+            elif gen_reference_flag:
+                prompt = prompt_fomular_reference_generate(line, sub=True)
             else:
                 prompt = prompt_fomular(line, dataset, model=model_name, extral_ask=extral_ask, rag=rag_flag)
 
@@ -233,5 +270,5 @@ if __name__ == '__main__':
             output_file.write(json.dumps(line, ensure_ascii=False) + '\n')
             print('-'*50 + 'RESPONSE' + '-'*50)
             print(response)
-            if i >= 10:
+            if i >= 3:
                 break
