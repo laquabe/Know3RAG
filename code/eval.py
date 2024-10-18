@@ -174,6 +174,7 @@ def eval_file(file_name, dataset, model_name, answer_key):
         cot=[]
         test_file = open(file_name, 'r')
         f1 = exact_match = total = 0
+        local_true_P, local_false_P ,local_true_N, local_false_N = 0, 0, 0, 0
         for idx, test_case in tqdm(enumerate(test_file)):
             test_case = json.loads(test_case)
             total += 1
@@ -186,12 +187,22 @@ def eval_file(file_name, dataset, model_name, answer_key):
             cot.append(metric_max_over_ground_truths(exact_match_score, prediction, ground_truths))
             exact_match += metric_max_over_ground_truths(
                 exact_match_score, prediction, ground_truths)
+            if metric_max_over_ground_truths(exact_match_score, prediction, ground_truths):
+                if test_case['local_check'] == True:
+                    local_true_P += 1
+                else:
+                    local_false_P += 1
+            else:
+                if test_case['local_check'] == True:
+                    local_true_N += 1
+                else:
+                    local_false_N += 1
             f1 += metric_max_over_ground_truths(
                 f1_score, prediction, ground_truths)
 
         print('{}.{} Acc for EM: {}'.format(dataset, model_name, exact_match/total))
         print('{}.{} Acc for F1: {}'.format(dataset, model_name, f1/total))
-    
+        print(local_true_P, local_true_N, local_false_P, local_false_N)
     else:
         print('Not supported Datasets')
 

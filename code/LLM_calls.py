@@ -122,7 +122,7 @@ if __name__ == "__main__":
         {"role": "assistant", "content": "Well, I'm quite partial to a good squeeze of fresh lemon juice. It adds just the right amount of zesty flavour to whatever I'm cooking up in the kitchen!"},
         {"role": "user", "content": "Do you have mayonnaise recipes?"}
     ]
-    model_name = 'Qwen'
+    model_name = 'Llama'
     '''Mistarl'''
     # model, tokenizer = load_llm(model_name, '')
     # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
@@ -140,9 +140,9 @@ if __name__ == "__main__":
     # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
     # print(response)
     '''Qwen'''
-    model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/Qwen2-7B-Instruct')
-    response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, do_sample=True)
-    print(response)
+    # model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/Qwen2-7B-Instruct')
+    # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, do_sample=True)
+    # print(response)
     '''Yi'''
     # model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/Yi-1.5-9B-Chat')
     # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, do_sample=True)

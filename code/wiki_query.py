@@ -61,14 +61,14 @@ def entity_linking_with_spacy(sentence:str, add_description=False):
     
     return ent_dict
 
-def process_by_line(input_file_path, output_file_path, func):
+def process_by_line(input_file_path, output_file_path, func, src_key):
     with open(input_file_path) as input_f, \
         open(output_file_path, 'w') as output_f:
         i = 0
         for line in tqdm(input_f):
             line = json.loads(line.strip())
             if func == 'el':
-                ques = line['Question']
+                ques = line[src_key]
                 ent_dict = entity_linking_with_spacy(ques, add_description=True)
                 line['question_entity'] = ent_dict
                 output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
@@ -78,5 +78,3 @@ if __name__ == '__main__':
     input_file_path = '/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/decompose.json'
     output_file_path = '/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/question_entity.json'
     process_by_line(input_file_path, output_file_path, func='el')
-
-
