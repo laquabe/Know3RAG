@@ -1,6 +1,7 @@
 import json
 import copy
 import re
+from tqdm import tqdm
 
 def read_data(dataset_name, file_path):
     if dataset_name in ['Truthful_QA', 'Temporal_QA']:
@@ -207,6 +208,75 @@ def json_decode(ans:str):
     
     return ans, False
 
+def triple_extraction_decode(ans:str):
+    json_pattern = r'\[.*\]'
+    match = re.match(json_pattern, ans, re.DOTALL)  # re.DOTALL 允许 . 匹配换行符
+    phrase_flag = False
+
+    if match:
+        json_str = match.group()
+        json_str = json_str.replace('\n', '')
+        # print(json.dumps(json_str))
+        try:
+            json_str = json.loads(json_str)
+            phrase_flag = True
+            return json_str, phrase_flag
+        except:
+            pass  
+
+    json_pattern = r'\{.*?\}'
+    match = re.findall(json_pattern, ans)
+    triple_list = []
+    for m in match:
+        try:
+            m = json.loads(m)
+            triple_list.append(m)
+        except:
+            continue
+    
+    if len(triple_list) > 0:
+        return triple_list, True
+    else:
+        return ans, False
+
+    return ans, False
+
+forbidden_list = set(['--','I', 'you', 'he', 'she', 'it', 'we', 'they', 'this', 'that', 'these', 'those', 
+                      'anyone', 'everyone', 'someone', 'no one', 'nobody', 'somebody', 'everybody', 'anything', 'something', 'everything', 'nothing',
+                      'the', 'a', 'an', 'one', 'the two', 'the other', 'other', 'another',
+                      'book', 'song', 'country', 'school', 'friend', 'pet', 'job', 'event', 'restaurant', 'app', 'company', 'film', 'people', 'person',
+                      'language', 'city', 'family member', 'hobby', 'sport', 'project', 'skill', 'neighborhood', 'website', 'community', 'judge', 'court'])
+
+def triple_verication(list_raw:list):
+    '''纯数字我们不处理，他仍然是合法的'''
+    list_new = []
+    
+    for t in list_raw:
+        head_list, tail_list = [], []
+        if 'subject' not in t.keys():
+            continue
+        if 'object' not in t.keys():
+            continue
+        if isinstance(t['subject'], str):
+            head_list = [t['subject']]
+        elif isinstance(t['subject'], list):
+            head_list = t['subject']
+
+        if isinstance(t['object'], str):
+            tail_list = [t['object']]
+        elif isinstance(t['object'], list):
+            tail_list = t['object']
+
+        for s in head_list:
+            if s.lower() in forbidden_list:
+                continue
+            for o in tail_list:
+                if o.lower() in forbidden_list:
+                    continue
+                list_new.append({'subject':s, 'predicate':t['predicate'], 'object':o})
+    
+    return list_new
+
 def summary_process(line:dict):
     res_json, flag = json_decode(line['llm_response'])
     if flag:
@@ -228,11 +298,12 @@ def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, 
     add_question_entity: add_question_entity\n
     reliability_phrase: local_ckeck\n
     add_key: add src to tgt key\n
+    triple_extract: phrase llm triple extraction
     '''
     with open(input_file_name) as input_f, \
         open(output_file_name, 'w') as output_f:
         error_num = 0
-        for line in input_f:
+        for line in tqdm(input_f):
             line = json.loads(line.strip())
             if func == 'summary':
                 summary_text, flag = summary_process(line)
@@ -247,6 +318,14 @@ def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, 
                     line['pseudo_doc'] = res['reference_paragraph']
                 else:
                     line['pseudo_doc'] = line['Question']
+                    error_num += 1
+            if func == 'triple_extract':
+                res, json_flag = triple_extraction_decode(line['llm_response'])
+                if json_flag:
+                    res = triple_verication(res)
+                    line['llm_triple'] = res
+                else:
+                    line['llm_triple'] = []
                     error_num += 1
             if func == 'add_reference':
                 line['passages'] = line['pseudo_doc_entity']
@@ -329,10 +408,12 @@ if __name__ == "__main__":
     #           '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/entity_knowledge-card-all.json',
     #           'knowledge_card')
     # summary_dict = read_map('/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/summary_all.json', map_func='local')
-    pair_merge('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/pseudoEntity_card_question_local_check.json',
-                 '/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/pseudoEntity_card_question_local_check_filter_dev.json',
-                 'filter', summary_map_dict=None)
+    # pair_merge('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/pseudoEntity_card_question_local_check.json',
+    #              '/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/pseudoEntity_card_question_local_check_filter_dev.json',
+    #              'filter', summary_map_dict=None)
     # subq_dict = read_map('/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/pseudo_doc_generate_question_entity.json', 'pseudo_doc')
-    # process_by_line('/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/question_local_check_entity.json',
-    #                 '/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/pseudo_entity_doc_as_passage.json',
-    #                 'add_reference', id2subq_dict=None)
+    process_by_line('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/Llama/entity_knowledge-card-all_triples_woentity.json',
+                    '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/entity_knowledge-card-all_triples_woentity.json',
+                    'triple_extract', id2subq_dict=None)
+    # res, _ = triple_extraction_decode("I'll extract the relationships between the provided entities from the given text.\n\nAfter analyzing the text and the provided entities, I found the following relationships:\n\n[{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"got completed\", \"object\": \"None\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"must be created\", \"object\": \"murtis\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"made\", \"object\": \"murtis\"}, \n{\"subject\": \"shanthamadurai\", \"predicate\": \"is brought out\", \"object\": \"moon light\"}, \n{\"subject\": \"moon light\", \"predicate\": \"is brought\", \"object\": \"house\"}]\n\nNote that the entity \"reference\" is not related to any other entity in the text, so it's not included in the output. Also, the entity \"question\" is not directly related to any other entity, but it's mentioned in the context of \"lakshmi kalyanam\", so I didn't include it as a separate entity.\n\nThe entity \"purpose\" is related to the creation of murtis, but it's not a direct relationship, so I didn't include it as a separate triple. Similarly, the entity \"reason\" is mentioned as the same reason as they made murtis for kalyanam, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"ceremony\" is mentioned in the context of creating murtis, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"kalyanam\" is mentioned multiple times, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"light\" is mentioned as \"moon light\", but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"place\" is mentioned as the place where shanthamadurai was staying, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"house\" is mentioned as the place where the moon light is brought, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"moon\" is mentioned as the source of the moon light, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nSo, the final output is:\n\n[{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"got completed\", \"object\": \"None\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"must be created\", \"object\": \"murtis\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"made\", \"object\": \"murtis\"}, \n{\"subject\": \"shanthamadurai\", \"predicate\": \"is brought out\", \"object\": \"moon light\"}, \n{\"subject\": \"moon light\", \"predicate\": \"is brought\", \"object\": \"house\"}]I'll extract the relationships between the provided entities from the given text.\n\nAfter analyzing the text and the provided entities, I found the following relationships:\n\n[{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"got completed\", \"object\": \"None\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"must be created\", \"object\": \"murtis\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"made\", \"object\": \"murtis\"}, \n{\"subject\": \"shanthamadurai\", \"predicate\": \"is brought out\", \"object\": \"moon light\"}, \n{\"subject\": \"moon light\", \"predicate\": \"is brought\", \"object\": \"house\"}]\n\nNote that the entity \"reference\" is not related to any other entity in the text, so it's not included in the output. Also, the entity \"question\" is not directly related to any other entity, but it's mentioned in the context of \"lakshmi kalyanam\", so I didn't include it as a separate entity.\n\nThe entity \"purpose\" is related to the creation of murtis, but it's not a direct relationship, so I didn't include it as a separate triple. Similarly, the entity \"reason\" is mentioned as the same reason as they made murtis for kalyanam, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"ceremony\" is mentioned in the context of creating murtis, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"kalyanam\" is mentioned multiple times, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"light\" is mentioned as \"moon light\", but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"place\" is mentioned as the place where shanthamadurai was staying, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"house\" is mentioned as the place where the moon light is brought, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"moon\" is mentioned as the source of the moon light, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nSo, the final output is:\n\n[{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"got completed\", \"object\": \"None\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"must be created\", \"object\": \"murtis\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"made\", \"object\": \"murtis\"}, \n{\"subject\": \"shanthamadurai\", \"predicate\": \"is brought out\", \"object\": \"moon light\"}, \n{\"subject\": \"moon light\", \"predicate\": \"is brought\", \"object\": \"house\"}]")
+    # print(res)
