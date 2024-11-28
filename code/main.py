@@ -296,7 +296,92 @@ def prompt_fomular(line:dict, dataset, model=None, shuffle=True, extral_ask=True
         content += 'Answer the following questions using the format and guidelines provided above.\n**Question:** {}\n**Response:**'.format(line['Question'])
 
         return content
-        
+
+def process_file(data, output_file, args, model=None, tokenizer=None, pipeline=None):
+    i = 0
+    for line in tqdm(data):
+        if args.line:
+            line = json.loads(line)
+        if args.exinfo_judge:
+            prompt = prompt_fomular_retrive_judge(line)
+        elif args.summary:
+            prompt = prompt_fomular_summary(line)
+        elif args.decompose:
+            prompt = prompt_fomular_decompose_question(line)
+        elif args.generate_reference:
+            prompt = prompt_fomular_reference_generate(line, add_entity=True)
+        elif args.local_check:
+            prompt = prompt_fomular_kg_local_check(line)
+        elif args.extract_triple:
+            prompt = prompt_fomular_triple_extraction(line, provide_entity=True)
+        else:
+            prompt = prompt_fomular(line, args.dataset, model=args.model_name, extral_ask=args.extral_ask, rag=args.rag, src_key='pseudo_doc_entity')
+
+        messages = [{"role": "user", "content": prompt}]
+        if args.model_name == 'Mistral':
+            response = llm_call(messages, args.model_name, model=model, tokenizer=tokenizer)
+        elif args.model_name == 'Llama':
+            response = llm_call(messages, args.model_name, pipeline=pipeline)
+        line['llm_response'] = response
+        output_file.write(json.dumps(line, ensure_ascii=False) + '\n')
+
+        if args.test:
+            print('-'*50 + 'PROMPT' + '-'*50)
+            print(prompt)
+            print('-'*50 + 'RESPONSE' + '-'*50)
+            print(response)
+            i += 1
+            if i >= 3:
+                break
+
+def main(args):
+    assert args.model_name.lower() in args.model_path.lower()
+    if args.model_name == 'Mistral':
+        model, tokenizer = load_llm(args.model_name, args.model_path)
+        pipeline = None
+    elif args.model_name == 'Llama':
+        pipeline = load_llm(args.model_name, args.model_path)
+        model, tokenizer = None, None
+
+    if args.dataset_name == 'Temporal':
+        # input_file
+        dataset = '{}_QA'.format(args.dataset_name)
+        if args.dataset_path:
+            dataset_path = args.dataset_path
+        else:
+            dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/{}QA/dev.json'.format(args.dataset_name)
+
+        if not args.line:
+            data = read_data(dataset, dataset_path)
+        else:
+            data = open(dataset_path)
+        # output_file
+        output_file_name = 'result/{}QA/{}/{}.json'.format(args.dataset_name, args.model_name, args.exp_name)
+        output_file = open(output_file_name, 'w')
+        # process
+        process_file(data, output_file, args, model=model, tokenizer=tokenizer, pipeline=pipeline)
+
+    if args.dataset_name == 'Truthful':
+        # input_file
+        dataset = '{}_QA'.format(args.dataset_name)
+        if args.dataset_path:
+            dataset_path = args.dataset_path
+        else:
+            dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/TruthfulQA/truthfulqa_mc_task.json'
+
+        if not args.line:
+            data = read_data(dataset, dataset_path)
+        else:
+            data = open(dataset_path)
+        # output_file
+        output_file_name = 'result/{}QA/{}/{}.json'.format(args.dataset_name, args.model_name, args.exp_name)
+        output_file = open(output_file_name, 'w')
+        # process
+        process_file(data, output_file, args, model=model, tokenizer=tokenizer, pipeline=pipeline)
+
+    if args.dataset_name == 'MMLU':
+        pass
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='DocFixQA args')
     parser.add_argument('--dataset_name', '-d', type=str, required=True, help="Dataset Name")
@@ -304,112 +389,16 @@ if __name__ == '__main__':
     parser.add_argument('--model_name', '-m', type=str, required=True, help='Model Name')
     parser.add_argument('--exp_name','-e',type=str, required=True, default='test', help='Exp Name')
     parser.add_argument('--model_path','-p',type=str, required=True, help="Path to model")
-    parser.add_argument('--test', action='store_true', help="if Test", default=None)
-    parser.add_argument('--self_ask', action='store_true', help="if Self Ask", default=None)
-    parser.add_argument('--rag', action='store_true', help="if Rag", default=None)
-    parser.add_argument('--exinfo_judge', action='store_true', help="if External Information Filter by Pair", default=None)
-    parser.add_argument('--line', action='store_true', help="if Process by line", default=None)
-    parser.add_argument('--summary', action='store_true', help="Summary Process", default=None)
-    parser.add_argument('--decompose', action='store_true', help="Decompose the Question into Subqustion", default=None)
-    parser.add_argument('--generate_reference', action='store_true', help="Generate Reference by LLM", default=None)
-    parser.add_argument('--local_check', action='store_true', help="Chech the reliability of generate passages with local entity", default=None)
-    parser.add_argument('--extact_triple', action='store_true', help="Extract triples in Text", default=None)
+    parser.add_argument('--test', action='store_true', help="if Test")
+    parser.add_argument('--line', action='store_true', help="if Process by line")
+    parser.add_argument('--self_ask', action='store_true', help="if Self Ask")
+    parser.add_argument('--rag', action='store_true', help="if Rag")
+    parser.add_argument('--exinfo_judge', action='store_true', help="if External Information Filter by Pair")
+    parser.add_argument('--summary', action='store_true', help="Summary Process")
+    parser.add_argument('--decompose', action='store_true', help="Decompose the Question into Subqustion")
+    parser.add_argument('--generate_reference', action='store_true', help="Generate Reference by LLM")
+    parser.add_argument('--local_check', action='store_true', help="Chech the reliability of generate passages with local entity")
+    parser.add_argument('--extract_triple', action='store_true', help="Extract triples in Text")
 
     args = parser.parse_args()
-    dataset_name = args.dataset_name
-    model_name = args.model_name
-    exp_name = args.exp_name
-    full_flag = False if args.test else True
-    extral_ask = True if args.self_ask else False
-    rag_flag = True if args.rag else False
-    exinfo_judge = True if args.exinfo_judge else False
-    line_flag = True if args.line else False
-    summary_flag = True if args.summary else False
-    decompose_flag = True if args.decompose else False
-    gen_reference_flag = True if args.generate_reference else False
-    local_check_flag = True if args.local_check else False
-    extract_triple_flag = True if args.extact_triple else False
-
-    dataset = '{}_QA'.format(dataset_name)
-    if args.dataset_path:
-        dataset_path = args.dataset_path
-    elif dataset_name == 'Temporal':
-        dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/{}QA/dev.json'.format(dataset_name)
-    elif dataset_name == 'Truthful':
-        dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/TruthfulQA/truthfulqa_mc_task.json'
-        
-
-    output_file_name = 'result/{}QA/{}/{}.json'.format(dataset_name, model_name, exp_name)
-    output_file = open(output_file_name, 'w')
-    
-    assert model_name.lower() in args.model_path.lower()
-    if model_name == 'Mistral':
-        model, tokenizer = load_llm(model_name, args.model_path)
-    elif model_name == 'Llama':
-        pipeline = load_llm(model_name, args.model_path)
-    
-    if not line_flag:
-        data = read_data(dataset, dataset_path)
-    else:
-        data = open(dataset_path)
-    
-    if full_flag:
-        for line in tqdm(data):
-            if line_flag:
-                line = json.loads(line)
-
-            if exinfo_judge:
-                prompt = prompt_fomular_retrive_judge(line)
-            elif summary_flag:
-                prompt = prompt_fomular_summary(line)
-            elif decompose_flag:
-                prompt = prompt_fomular_decompose_question(line)
-            elif gen_reference_flag:
-                prompt = prompt_fomular_reference_generate(line, add_entity=True)
-            elif local_check_flag:
-                prompt = prompt_fomular_kg_local_check(line)
-            elif extract_triple_flag:
-                prompt = prompt_fomular_triple_extraction(line, provide_entity=True)
-            else:
-                prompt = prompt_fomular(line, dataset, model=model_name, extral_ask=extral_ask, rag=rag_flag, src_key='pseudo_doc_entity')
-
-            messages = [{"role": "user", "content": prompt}]
-            if model_name == 'Mistral':
-                response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
-            elif model_name == 'Llama':
-                response = llm_call(messages, model_name, pipeline=pipeline)
-            line['llm_response'] = response
-            output_file.write(json.dumps(line, ensure_ascii=False) + '\n')
-    else:
-        for i, line in enumerate(data):
-            if line_flag:
-                line = json.loads(line)
-
-            if exinfo_judge:
-                prompt = prompt_fomular_retrive_judge(line)
-            elif summary_flag:
-                prompt = prompt_fomular_summary(line)
-            elif decompose_flag:
-                prompt = prompt_fomular_decompose_question(line)
-            elif gen_reference_flag:
-                prompt = prompt_fomular_reference_generate(line, add_entity=True)
-            elif local_check_flag:
-                prompt = prompt_fomular_kg_local_check(line)
-            elif extract_triple_flag:
-                prompt = prompt_fomular_triple_extraction(line, provide_entity=True)
-            else:
-                prompt = prompt_fomular(line, dataset, model=model_name, extral_ask=extral_ask, rag=rag_flag, src_key='pseudo_doc_entity')
-
-            print('-'*50 + 'PROMPT' + '-'*50)
-            print(prompt)
-            messages = [{"role": "user", "content": prompt}]
-            if model_name == 'Mistral':
-                response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
-            elif model_name == 'Llama':
-                response = llm_call(messages, model_name, pipeline=pipeline)
-            line['llm_response'] = response
-            output_file.write(json.dumps(line, ensure_ascii=False) + '\n')
-            print('-'*50 + 'RESPONSE' + '-'*50)
-            print(response)
-            if i >= 3:
-                break
+    main(args)

@@ -228,27 +228,6 @@ def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key):
                 line[tgt_key] = triple_id_list
                 output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
 
-def read_KGC_id_dict(entity_file_name, relation_file_name):
-    with open(entity_file_name) as e_f,\
-        open(relation_file_name) as r_f:
-        e_kgc_id_dict = {}
-        r_kgc_id_dict = {}
-
-        for line in tqdm(e_f):
-            line = json.loads(line)
-            e_kgc_id_dict[line['wiki_id']] = line['map_id']
-        
-        for line in tqdm(r_f):
-            line = json.loads(line)
-            r_kgc_id_dict[line['wiki_id']] = line['map_id']
-    
-    return e_kgc_id_dict, r_kgc_id_dict
-
-if score_flag:
-    e_file_path = '/data/xkliu/kge/data/wikidata5m/entity_ids.json'
-    r_file_path = '/data/xkliu/kge/data/wikidata5m/relation_ids.json'
-    e_kgc_id_dict, r_kgc_id_dict = read_KGC_id_dict(e_file_path, r_file_path)
-
 if __name__ == '__main__':
     input_file_path = '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/wiki/test.json'
     output_file_path = '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/wiki/test_score.json'
