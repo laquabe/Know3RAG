@@ -5,19 +5,24 @@ from transformers.generation.utils import GenerationConfig  #baichuan
 # device = "cuda" the device to load the model onto
 
 
-def load_llm(model_name, model_path):
+def load_llm(model_name, model_path, logit=False):
     if model_name == 'Mistral':
         model = AutoModelForCausalLM.from_pretrained(model_path, device_map='auto')
         tokenizer = AutoTokenizer.from_pretrained(model_path, device_map='auto')
         return model, tokenizer
     elif model_name == 'Llama':
-        pipeline = transformers.pipeline(
-            "text-generation",
-            model=model_path,
-            model_kwargs={"torch_dtype": torch.bfloat16},
-            device_map='auto',
-            )
-        return pipeline
+        if logit:
+            model = AutoModelForCausalLM.from_pretrained(model_path, device_map='auto')
+            tokenizer = AutoTokenizer.from_pretrained(model_path, device_map='auto')
+            return model, tokenizer
+        else:
+            pipeline = transformers.pipeline(
+                "text-generation",
+                model=model_path,
+                model_kwargs={"torch_dtype": torch.bfloat16},
+                device_map='auto',
+                )
+            return pipeline
     elif model_name == 'GLM3':
         tokenizer = AutoTokenizer.from_pretrained(model_path, device_map='auto', trust_remote_code=True)
         model = AutoModel.from_pretrained(model_path, device_map='auto', trust_remote_code=True).half().cuda()
@@ -48,7 +53,7 @@ def load_llm(model_name, model_path):
         print('Error! No support models')
     print('Model load sucessfully!')
 
-def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do_sample=False, max_new_tokens=1024):
+def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do_sample=False, max_new_tokens=1024, output_logit=False, logit_topk=100):
     if model_name == 'Mistral':
         model_inputs = tokenizer.apply_chat_template(messages, return_tensors="pt").to('cuda')
         generated_ids = model.generate(model_inputs, max_new_tokens=max_new_tokens, do_sample=do_sample)
@@ -59,14 +64,52 @@ def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do
         response = response.strip()
         return response
     elif model_name == 'Llama':
-        prompt = pipeline.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        terminators = [pipeline.tokenizer.eos_token_id, pipeline.tokenizer.convert_tokens_to_ids("<|eot_id|>")]
-        if do_sample:
-            outputs = pipeline(prompt, max_new_tokens=max_new_tokens, eos_token_id=terminators, do_sample=do_sample, temperature=0.6, top_p=0.9)
-        else:
-            outputs = pipeline(prompt, max_new_tokens=max_new_tokens, eos_token_id=terminators, do_sample=do_sample)
+        if output_logit:
+            input_ids = tokenizer(messages[-1]['content'], return_tensors="pt").input_ids.to('cuda')
+            # 禁用梯度计算
+            with torch.no_grad():
+                # 使用 generate 方法并返回所有生成步骤的 logits
+                outputs = model.generate(
+                    input_ids,
+                    max_new_tokens=10,
+                    return_dict_in_generate=True,
+                    output_scores=True
+                )
+            # 获取最后生成 token 的 logits
+            logits = outputs.scores[-1] # ?
 
-        return outputs[0]["generated_text"][len(prompt):]
+            # 计算概率并选出前100个最高的
+            probs = torch.softmax(logits, dim=-1)
+            # top_probs, top_indices = torch.topk(probs, 100)
+            # for i in range(100):
+            #     print('{}:{}'.format(top_indices[0][i], tokenizer.decode(top_indices[0][i], skip_special_tokens=True)))
+
+            # 获取候选词及其对应的 token IDs
+            candidate_tokens = ["A", "B", "C", "D"]
+            candidate_ids = [tokenizer.convert_tokens_to_ids(tokenizer.tokenize(option)[0]) for option in candidate_tokens]
+            print(candidate_ids)
+            # 筛选候选项的概率
+            # candidate_probs = {candidate_tokens[i]: probs[0, candidate_id].item() for i, candidate_id in enumerate(candidate_ids) if candidate_id in top_indices}
+            candidate_probs = {candidate_tokens[i]: probs[0, candidate_id].item() for i, candidate_id in enumerate(candidate_ids)}
+
+            # 找出概率最大的候选项或返回 None
+            max_option = max(candidate_probs, key=candidate_probs.get) if candidate_probs else None
+
+            # 输出结果
+            # print("Probabilities (Top 100):", candidate_probs)
+            # print("Selected Option:", max_option)
+            return max_option
+
+        else:
+            prompt = pipeline.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            terminators = [pipeline.tokenizer.eos_token_id, pipeline.tokenizer.convert_tokens_to_ids("<|eot_id|>")]
+            if do_sample:
+                outputs = pipeline(prompt, max_new_tokens=max_new_tokens, eos_token_id=terminators, do_sample=do_sample, temperature=0.6, top_p=0.9)
+            else:
+                outputs = pipeline(prompt, max_new_tokens=max_new_tokens, eos_token_id=terminators, do_sample=do_sample)
+        
+            return outputs[0]["generated_text"][len(prompt):]
+
     elif model_name == 'GLM3':
         message = messages[-1]['content']
         history = messages[:-1]
@@ -118,9 +161,7 @@ def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do
 
 if __name__ == "__main__":
     messages = [
-        {"role": "user", "content": "What is your favourite condiment?"},
-        {"role": "assistant", "content": "Well, I'm quite partial to a good squeeze of fresh lemon juice. It adds just the right amount of zesty flavour to whatever I'm cooking up in the kitchen!"},
-        {"role": "user", "content": "Do you have mayonnaise recipes?"}
+        {"role": "user", "content": "Read the following question and provide only the correct option letter (e.g., A, B, C, or D) without adding any additional text.\n\n Question: Where is London?\nA. China\n B. America\n C. England \n D.France \n Answer:"},
     ]
     model_name = 'Llama'
     '''Mistarl'''
@@ -128,9 +169,9 @@ if __name__ == "__main__":
     # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
     # print(response)
     '''Llama'''
-    # pipeline = load_llm(model_name, '/data/share_weight/Meta-Llama-3-8B-Instruct')
-    # response = llm_call(messages, model_name, pipeline=pipeline)
-    # print(response)
+    model, tokenizer = load_llm(model_name, '/data/share_weight/Meta-Llama-3-8B-Instruct', logit=True)
+    response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, output_logit=True)
+    print(response)
     '''GLM3'''
     # model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/chatglm3-6b')
     # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)

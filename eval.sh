@@ -1,6 +1,6 @@
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=6
 python code/eval.py \
-    --dataset_name TemporalQA \
+    --dataset_name MMLU \
     --model_name Llama \
-    --file_path /data/xkliu/LLMs/DocFixQA/result/TemporalQA/Llama/SelfQuery_AddRaw_rag.json \
+    --file_path /data/xkliu/LLMs/DocFixQA/result/MMLU/raw/ \
     --answer_key llm_response

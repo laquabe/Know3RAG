@@ -8,15 +8,15 @@ import re
 import json
 import spacy
 import numpy as np
-from scipy import stats
+# from scipy import stats
 
-nlp = spacy.load('en_core_web_md')
+# nlp = spacy.load('en_core_web_md')
 
-# for mc1 sim caculate
-import torch
-torch.set_num_threads(10)
-from sentence_transformers import SentenceTransformer
-sim_model = SentenceTransformer('/data/xkliu/hf_models/all-mpnet-base-v2')
+# # for mc1 sim caculate
+# import torch
+# torch.set_num_threads(10)
+# from sentence_transformers import SentenceTransformer
+# sim_model = SentenceTransformer('/data/xkliu/hf_models/all-mpnet-base-v2')
 
 import argparse
 
@@ -89,7 +89,19 @@ def get_answer_ref(prediction, answer):
     else:
         return ''
 
-def eval_line(line, dataset, model_name, answer_key,firstorlast='first'):
+def find_options_positions(text, options=['a', 'b', 'c', 'd']):
+    positions = {}
+    
+    for option in options:
+        match = re.search(rf'{option}', text)
+        if match:
+            positions[option] = match.start()
+    
+    first_option = min(positions, key=positions.get) if positions else None
+
+    return positions, first_option
+
+def eval_line(line, dataset, model_name, answer_key, firstorlast='first'):
     if dataset == 'TruthfulQA':
         ans = line[answer_key]
         candidates = line['mc1_targets']
@@ -150,7 +162,34 @@ def eval_line(line, dataset, model_name, answer_key,firstorlast='first'):
             return choice, True
         else:
             return choice, False
-                  
+    
+    if dataset == 'MMLU':
+        # multi choice
+        error_flag = True
+        possible_prefix = ["answer:", 'answer is:', 'answer is ']
+        pred = line[answer_key]
+        for prefix in possible_prefix:
+            if prefix in pred.lower():
+                idx = pred.lower().rfind(prefix)
+                # print ("extracted ans string: ", pred[idx + len(prefix) : ])
+                pred_ans = pred[idx + len(prefix) : ]
+                pred_ans = pred_ans.strip()
+                if len(pred_ans) > 0:
+                    error_flag = False
+                    break
+
+        if error_flag:
+            pred_ans = pred.strip()
+            _, pred_choice = find_options_positions(pred_ans.lower(), ['a.', 'b.', 'c.', 'd.'])
+            if pred_choice != None:
+                pred_choice = pred_choice[0]
+        else:
+            _, pred_choice = find_options_positions(pred_ans.lower())
+    
+        if pred_choice != None:
+            return pred_ans, pred_choice.upper() == line['Answer'], error_flag
+        else:
+            return pred_ans, False, error_flag
 
 def eval_file(file_name, dataset, model_name, answer_key):
     '''
@@ -203,6 +242,52 @@ def eval_file(file_name, dataset, model_name, answer_key):
         print('{}.{} Acc for EM: {}'.format(dataset, model_name, exact_match/total))
         print('{}.{} Acc for F1: {}'.format(dataset, model_name, f1/total))
         print(local_true_P, local_true_N, local_false_P, local_false_N)
+
+    elif dataset == 'MMLU':
+        # file_name -> file_path
+        import os
+        from mmlu_categories import subcategories, categories
+        
+        #load test dir
+        subjects = sorted([f.split("_result.json")[0] for f in os.listdir(os.path.join(file_name)) if "_result.json" in f])
+        result_dict = {}
+        all_sub_dict = {}
+        for sub in subjects:
+            for c, c_list in categories.items():
+                if len(set(subcategories[sub]) & set(c_list)) != 0:
+                    cat = c
+                    break
+
+            input_file_name = os.path.join(file_name, sub + "_result.json")
+            input_file = open(input_file_name)
+            for line in tqdm(input_file):
+                line = json.loads(line)
+                pred, cor, err = eval_line(line, dataset, model_name, answer_key)
+                cat_dict = result_dict.get(cat, {})
+                cat_dict['all_num'] = cat_dict.get('all_num', 0) + 1
+                if cor:
+                    cat_dict['correct_num'] = cat_dict.get('correct_num', 0) + 1
+                if err:
+                    cat_dict['error_num'] = cat_dict.get('error_num', 0) + 1
+                    # print('-'*50)
+                    # print(pred)
+                    # if cat_dict['error_num'] > 10:
+                    #     exit()
+                result_dict[cat] = cat_dict
+        
+        all_num, cor_num, err_num = 0, 0, 0
+        acc_list = []
+        for sub, v_dict in result_dict.items():
+            print('{}: All: {}, Correct: {}, Error: {}, Acc: {:.3f}'.format(sub, v_dict['all_num'], v_dict['correct_num'], v_dict['error_num'], v_dict['correct_num'] / v_dict['all_num']))
+            all_num += v_dict['all_num']
+            cor_num += v_dict['correct_num']
+            err_num += v_dict['error_num']
+            acc_list.append(v_dict['correct_num'] / v_dict['all_num'])
+        
+        print('Micro: All: {}, Correct: {}, Error: {}, Acc: {:.3f}'.format(all_num, cor_num, err_num, cor_num / all_num))
+        print('4 Categories Macro Acc: {:.3f}'.format(sum(acc_list) / len(acc_list)))
+        # print('All Sub Categories Macro Acc: {:.3f}'.format(sum(acc_list) / len(acc_list)))
+
     else:
         print('Not supported Datasets')
 

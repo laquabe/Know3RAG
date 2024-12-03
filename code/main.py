@@ -260,7 +260,15 @@ def external_knowledge_prompt(line, src_key, local_check=False):
     context += '\n'
     return context
 
-def prompt_fomular(line:dict, dataset, model=None, shuffle=True, extral_ask=True, rag=False, src_key='passages'):
+def format_subject(subject):
+    l = subject.split("_")
+    s = ""
+    for entry in l:
+        s += " " + entry
+    return s
+
+def prompt_fomular(line:dict, dataset, model=None, shuffle=True, extral_ask=True, rag=False, src_key='passages',
+                   subject=None, CoT_prompt=None):
     if dataset == 'Truthful_QA':
         content = 'I will give a question and some answer choices, please select the only correct answer.\n\n'
         content += 'Question:{}\n'.format(line['question'])
@@ -296,8 +304,21 @@ def prompt_fomular(line:dict, dataset, model=None, shuffle=True, extral_ask=True
         content += 'Answer the following questions using the format and guidelines provided above.\n**Question:** {}\n**Response:**'.format(line['Question'])
 
         return content
+    elif dataset == 'MMLU':
+        content = "The following are multiple choice questions (with answers) about {}. Study the examples carefully and then answer the last question. End your response with \"Answer:\" followed by the correct option.\n\n".format(format_subject(subject))
+        content += CoT_prompt
+        content += 'Now, answer the following question:\n{}\nA. {}\nB. {}\nC. {}\nD. {}\nAnswer:'.format(line['Question'], line['A'], line['B'], line['C'], line['D'])
+        return content
 
-def process_file(data, output_file, args, model=None, tokenizer=None, pipeline=None):
+def process_file(data, output_file, args, model=None, tokenizer=None, pipeline=None, 
+                dev_file=None, subject=None):
+    if args.dataset_name == 'MMLU':
+        CoT_prompt = ''
+        i = 1
+        for dev_line in dev_file:
+            dev_line = json.loads(dev_line) 
+            CoT_prompt += 'Example {}:\n{}\nA. {}\nB. {}\nC. {}\nD. {}\nAnswer: {}\n\n'.format(i ,dev_line['Question'], dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'], dev_line['Answer'])
+            i += 1
     i = 0
     for line in tqdm(data):
         if args.line:
@@ -315,7 +336,7 @@ def process_file(data, output_file, args, model=None, tokenizer=None, pipeline=N
         elif args.extract_triple:
             prompt = prompt_fomular_triple_extraction(line, provide_entity=True)
         else:
-            prompt = prompt_fomular(line, args.dataset, model=args.model_name, extral_ask=args.extral_ask, rag=args.rag, src_key='pseudo_doc_entity')
+            prompt = prompt_fomular(line, args.dataset_name, model=args.model_name, extral_ask=args.self_ask, rag=args.rag, CoT_prompt=CoT_prompt, subject=subject)
 
         messages = [{"role": "user", "content": prompt}]
         if args.model_name == 'Mistral':
@@ -340,8 +361,12 @@ def main(args):
         model, tokenizer = load_llm(args.model_name, args.model_path)
         pipeline = None
     elif args.model_name == 'Llama':
-        pipeline = load_llm(args.model_name, args.model_path)
-        model, tokenizer = None, None
+        if args.logits:
+            model, tokenizer = load_llm(args.model_name, args.model_path, logit=True)
+            pipeline = None
+        else:
+            pipeline = load_llm(args.model_name, args.model_path)
+            model, tokenizer = None, None
 
     if args.dataset_name == 'Temporal':
         # input_file
@@ -380,15 +405,50 @@ def main(args):
         process_file(data, output_file, args, model=model, tokenizer=tokenizer, pipeline=pipeline)
 
     if args.dataset_name == 'MMLU':
-        pass
+        import os
+        from mmlu_categories import subcategories, categories
+        
+        #load src dir
+        subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(args.dataset_path, "dev")) if "{}_dev.json".format(args.exp_name) in f])
+        if args.exp_name == '':
+            exp_name = 'raw'
+        else:
+            exp_name = args.exp_name
+        # mkdir save dir
+        save_dir = os.path.join('result', 'MMLU', exp_name)
+        if not os.path.exists(save_dir):
+            os.mkdir(save_dir)
+        # read category
+        train_categories = []
+        for c in args.MMLU_categories:
+            train_categories.extend(categories[c])
+        
+        for sub in subjects:
+            if len(set(subcategories[sub]) & set(train_categories)) == 0:
+                continue
+            print(sub)
+            dev_file_name = os.path.join(args.dataset_path, "dev", sub + "{}_dev.json".format(args.exp_name))
+            input_file_name = os.path.join(args.dataset_path, "test", sub + "{}_test.json".format(args.exp_name))
+            dev_file = open(dev_file_name)
+            input_file = open(input_file_name)
+
+            output_file_name = os.path.join(save_dir, "{}_result.json".format(sub))
+            output_file = open(output_file_name, 'w')
+            process_file(input_file, output_file, args, model=model, tokenizer=tokenizer, pipeline=pipeline, dev_file=dev_file, subject=sub)
+
+            if args.test:
+                break
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='DocFixQA args')
     parser.add_argument('--dataset_name', '-d', type=str, required=True, help="Dataset Name")
     parser.add_argument('--dataset_path', type=str, help="Dataset Path", default=None)
     parser.add_argument('--model_name', '-m', type=str, required=True, help='Model Name')
-    parser.add_argument('--exp_name','-e',type=str, required=True, default='test', help='Exp Name')
+    parser.add_argument('--exp_name','-e',type=str, default='', help='Exp Name')
     parser.add_argument('--model_path','-p',type=str, required=True, help="Path to model")
+    parser.add_argument('--MMLU_categories', type=str, help='MMLU category', choices=["STEM", "humanities", "social sciences", "other (business, health, misc.)"],
+                        default=["STEM", "humanities", "social sciences", "other (business, health, misc.)"], nargs="+") # --MMLU_categories STEM humanities
     parser.add_argument('--test', action='store_true', help="if Test")
     parser.add_argument('--line', action='store_true', help="if Process by line")
     parser.add_argument('--self_ask', action='store_true', help="if Self Ask")
