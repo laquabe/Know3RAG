@@ -268,7 +268,7 @@ def format_subject(subject):
     return s
 
 def prompt_fomular(line:dict, dataset, model=None, shuffle=True, extral_ask=True, rag=False, src_key='passages',
-                   subject=None, CoT_prompt=None):
+                   subject=None, CoT_prompt=None, logits=False):
     if dataset == 'Truthful_QA':
         content = 'I will give a question and some answer choices, please select the only correct answer.\n\n'
         content += 'Question:{}\n'.format(line['question'])
@@ -305,9 +305,9 @@ def prompt_fomular(line:dict, dataset, model=None, shuffle=True, extral_ask=True
 
         return content
     elif dataset == 'MMLU':
-        content = "The following are multiple choice questions (with answers) about {}. Study the examples carefully and then answer the last question. End your response with \"Answer:\" followed by the correct option.\n\n".format(format_subject(subject))
-        content += CoT_prompt
-        content += 'Now, answer the following question:\n{}\nA. {}\nB. {}\nC. {}\nD. {}\nAnswer:'.format(line['Question'], line['A'], line['B'], line['C'], line['D'])
+        content = CoT_prompt
+        content += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question and four candidate answers (A, B, C and D), choose the best answer.\nQuestion: {}\nA. {}\nB. {}\nC. {}\nD. {}\nYour response should end with \"The best answer is [the_answer_letter]\" where the [the_answer_letter] is one of A, B, C or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nThe best answer is'.format(line['Question'], line['A'], line['B'], line['C'], line['D'])
+        
         return content
 
 def process_file(data, output_file, args, model=None, tokenizer=None, pipeline=None, 
@@ -316,8 +316,9 @@ def process_file(data, output_file, args, model=None, tokenizer=None, pipeline=N
         CoT_prompt = ''
         i = 1
         for dev_line in dev_file:
-            dev_line = json.loads(dev_line) 
-            CoT_prompt += 'Example {}:\n{}\nA. {}\nB. {}\nC. {}\nD. {}\nAnswer: {}\n\n'.format(i ,dev_line['Question'], dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'], dev_line['Answer'])
+            dev_line = json.loads(dev_line)
+            CoT_prompt += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question and four candidate answers (A, B, C and D), choose the best answer.\n'
+            CoT_prompt += 'Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\nYour response should end with \"The best answer is [the_answer_letter]\" where the [the_answer_letter] is one of A, B, C or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nThe best answer is {}.<|eot_id|>'.format(dev_line['Question'], dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'], dev_line['Answer'])
             i += 1
     i = 0
     for line in tqdm(data):
@@ -342,7 +343,10 @@ def process_file(data, output_file, args, model=None, tokenizer=None, pipeline=N
         if args.model_name == 'Mistral':
             response = llm_call(messages, args.model_name, model=model, tokenizer=tokenizer)
         elif args.model_name == 'Llama':
-            response = llm_call(messages, args.model_name, pipeline=pipeline)
+            if args.logits:
+                response = llm_call(messages, args.model_name, model=model, tokenizer=tokenizer, output_logit=True)
+            else:
+                response = llm_call(messages, args.model_name, pipeline=pipeline)
         line['llm_response'] = response
         output_file.write(json.dumps(line, ensure_ascii=False) + '\n')
 
@@ -409,7 +413,7 @@ def main(args):
         from mmlu_categories import subcategories, categories
         
         #load src dir
-        subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(args.dataset_path, "dev")) if "{}_dev.json".format(args.exp_name) in f])
+        subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(args.dataset_path, "dev")) if "{}_dev.json".format(args.mmlu_input) in f])
         if args.exp_name == '':
             exp_name = 'raw'
         else:
@@ -427,8 +431,8 @@ def main(args):
             if len(set(subcategories[sub]) & set(train_categories)) == 0:
                 continue
             print(sub)
-            dev_file_name = os.path.join(args.dataset_path, "dev", sub + "{}_dev.json".format(args.exp_name))
-            input_file_name = os.path.join(args.dataset_path, "test", sub + "{}_test.json".format(args.exp_name))
+            dev_file_name = os.path.join(args.dataset_path, "dev", sub + "{}_dev.json".format(args.mmlu_input))
+            input_file_name = os.path.join(args.dataset_path, "test", sub + "{}_test.json".format(args.mmlu_input))
             dev_file = open(dev_file_name)
             input_file = open(input_file_name)
 
@@ -449,6 +453,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_path','-p',type=str, required=True, help="Path to model")
     parser.add_argument('--MMLU_categories', type=str, help='MMLU category', choices=["STEM", "humanities", "social sciences", "other (business, health, misc.)"],
                         default=["STEM", "humanities", "social sciences", "other (business, health, misc.)"], nargs="+") # --MMLU_categories STEM humanities
+    parser.add_argument('--mmlu_input',type=str, help="MMLU input src string", default='')
     parser.add_argument('--test', action='store_true', help="if Test")
     parser.add_argument('--line', action='store_true', help="if Process by line")
     parser.add_argument('--self_ask', action='store_true', help="if Self Ask")
@@ -459,6 +464,7 @@ if __name__ == '__main__':
     parser.add_argument('--generate_reference', action='store_true', help="Generate Reference by LLM")
     parser.add_argument('--local_check', action='store_true', help="Chech the reliability of generate passages with local entity")
     parser.add_argument('--extract_triple', action='store_true', help="Extract triples in Text")
+    parser.add_argument('--logits', action='store_true', help="For mult-choice QA, use logits to choose answer")
 
     args = parser.parse_args()
     main(args)
