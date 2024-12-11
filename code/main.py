@@ -167,35 +167,86 @@ def prompt_fomular_kg_local_check(line:dict):
 
     return content
 
-def prompt_fomular_reference_generate(line:dict, sub=False, add_entity=False):
-    content = 'I have a list of questions and I\'d like you to write a reference paragraph for each question. These paragraphs will assist the person coming after me in amplifying and answering the questions concisely. You don\'t need to answer the questions directly, just provide enough information to guide the next person.\n'
-    if add_entity:
-        content += 'To make your reference paragraph more accurate, I will provide you with the entities related to the question and you can refer to them.\n'
-    content += 'Please output your responses in JSON format containing a key named "reference_paragraph".\n'
-    content += 'Here\'s an example to illustrate:\n\n'
-    content += '### Example Question:\n'
-    content += "Where is the capital of France?\n"
-    if add_entity:
-        content += '### Example Related Entities\n'
-        content += '1. France: country in Western Europe'
-    content += '### Example Output:\n'
-    content += '{"question": "Where is the capital of France?", "reference_paragraph": "The capital of France is Paris. Paris, known for its historical landmarks such as the Eiffel Tower and the Louvre Museum, is located in the northern part of the country along the Seine River. It is a major European city and a global center for art, fashion, and culture."}\n\n'
-    content += '### Hints:\n'
-    content += '1. Provide context or background information relevant to the question.\n'
-    content += '2. Include key facts, important dates, or notable figures if applicable.\n'
-    content += '3. Keep the paragraphs concise but informative enough to guide a more detailed response.\n'
-    if add_entity:
-        content += '4. Please make sure that the paragraphs you generate do not conflict with the relevant entities.\n'
-    content += '\nHere is the question:'
-    if sub:
-        content += '### Question:\n{}\n'.format(line['sub_question'])
+def prompt_fomular_reference_generate(line:dict, sub=False, add_entity=False, have_choice=False, CoT_prompt=None):
+    if have_choice:
+        system_prompt = "You are an intelligent assistant specialized in generating reference paragraphs for multiple-choice questions. Your task is to provide clear and concise paragraphs that contextualize each question and its answer choices. These paragraphs are meant to guide the next person in understanding the question and amplifying it effectively."
+                
+        system_prompt += '\nHints:\n'
+        system_prompt += '1. Provide context or background information relevant to the question and choices.\n'
+        system_prompt += '2. Include key facts, important dates if applicable.\n'
+        system_prompt += '3. Keep the paragraphs concise but informative enough to guide a more detailed response.\n'
+        if add_entity:
+            system_prompt += '4. Please make sure that the paragraphs you generate do not conflict with the relevant entities.\n'
+        
+        system_prompt = '<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{}<|eot_id|>\n'.format(system_prompt)
+
+        if CoT_prompt == None:
+            user_0 = 'I have a list of multiple-choice questions, and I\'d like you to write a reference paragraph for each question. These paragraphs will assist the person coming after me in understanding the context of the question and choices, enabling them to amplify and answer the questions concisely. You don\'t need to answer the questions directly, just provide enough information to guide the next person.\n'
+            if add_entity and (len(line['query_entity'])):
+                user_0 += 'To make your reference paragraph more accurate, I will provide you with the entities related to the question and you can refer to them.\n'
+
+            user_0 += '\nQuestion: Which city is the capital of France?\n'
+            user_0 += 'A. Paris\nB. London\nC. Berlin\nD. Madrid\n'
+            if add_entity and (len(line['query_entity'])):
+                user_0 += '\nRelated Entities:\n'
+                user_0 += '1. France: country in Western Europe\n'
+            user_0 += 'Your response should start with "Reference: [reference_paragraph]" where the [reference_paragraph] is the reference you write.\n'
+
+            assist_0 = "Reference: The capital of France is Paris. Paris, known for its historical landmarks such as the Eiffel Tower and the Louvre Museum, is located in the northern part of the country along the Seine River. It is a major European city and a global center for art, fashion, and culture."
+
+            CoT = '<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|>\n<|start_header_id|>assistant<|end_header_id|>\n\n{}<|eot_id|>'.format(user_0, assist_0)
+        else:
+            CoT = CoT_prompt
+        
+        user_1 = 'I have a list of multiple-choice questions, and I\'d like you to write a reference paragraph for each question. These paragraphs will assist the person coming after me in understanding the context of the question and choices, enabling them to amplify and answer the questions concisely. You don\'t need to answer the questions directly, just provide enough information to guide the next person.\n'
+        if add_entity and (len(line['query_entity'])):
+            user_1 += 'To make your reference paragraph more accurate, I will provide you with the entities related to the question and you can refer to them.\n'
+
+        user_1 += 'Question: {}\n'.format(line['Question'])
+        user_1 += 'A. {}\nB. {}\nC. {}\nD. {}\n'.format(line['A'], line['B'], line['C'], line['D'])
+        if add_entity and (len(line['query_entity'])):
+            user_1 += '\nRelated Entities:\n'
+            for i, ent in enumerate(line['query_entity'].values()):
+                user_1 += '{}. {}: {}\n'.format(i + 1, ent['entity'], ent['description'])
+        user_1 += 'Your response should start with "Reference: [reference_paragraph]" where the [reference_paragraph] is the reference you write.\n'
+
+        assist_1 = "Reference:"
+
+        question_prompt = '<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|>\n<|start_header_id|>assistant<|end_header_id|>\n\n{}'.format(user_1, assist_1)
+
+        content = system_prompt + CoT + question_prompt
+
+        return content 
+    
     else:
-        content += '### Question:\n{}\n'.format(line['Question'])
-    if add_entity:
-        content += '### Related Entities\n'
-        for i, ent in enumerate(line['question_entity'].values()):
-            content += '{}. {}: {}\n'.format(i + 1, ent['entity'], ent['description'])
-    content += 'Output:\n'
+        content = 'I have a list of questions and I\'d like you to write a reference paragraph for each question. These paragraphs will assist the person coming after me in amplifying and answering the questions concisely. You don\'t need to answer the questions directly, just provide enough information to guide the next person.\n'
+        if add_entity:
+            content += 'To make your reference paragraph more accurate, I will provide you with the entities related to the question and you can refer to them.\n'
+        content += 'Please output your responses in JSON format containing a key named "reference_paragraph".\n'
+        content += 'Here\'s an example to illustrate:\n\n'
+        content += '### Example Question:\n'
+        content += "Where is the capital of France?\n"
+        if add_entity:
+            content += '### Example Related Entities\n'
+            content += '1. France: country in Western Europe'
+        content += '### Example Output:\n'
+        content += '{"question": "Where is the capital of France?", "reference_paragraph": "The capital of France is Paris. Paris, known for its historical landmarks such as the Eiffel Tower and the Louvre Museum, is located in the northern part of the country along the Seine River. It is a major European city and a global center for art, fashion, and culture."}\n\n'
+        content += '### Hints:\n'
+        content += '1. Provide context or background information relevant to the question.\n'
+        content += '2. Include key facts, important dates, or notable figures if applicable.\n'
+        content += '3. Keep the paragraphs concise but informative enough to guide a more detailed response.\n'
+        if add_entity:
+            content += '4. Please make sure that the paragraphs you generate do not conflict with the relevant entities.\n'
+        content += '\nHere is the question:'
+        if sub:
+            content += '### Question:\n{}\n'.format(line['sub_question'])
+        else:
+            content += '### Question:\n{}\n'.format(line['Question'])
+        if add_entity:
+            content += '### Related Entities\n'
+            for i, ent in enumerate(line['query_entity'].values()):
+                content += '{}. {}: {}\n'.format(i + 1, ent['entity'], ent['description'])
+        content += 'Output:\n'
 
     return content
 
@@ -267,8 +318,8 @@ def format_subject(subject):
         s += " " + entry
     return s
 
-def prompt_fomular(line:dict, dataset, model=None, shuffle=True, extral_ask=True, rag=False, src_key='passages',
-                   subject=None, CoT_prompt=None, logits=False):
+def prompt_fomular(line:dict, dataset, model=None, shuffle=True, rag=False, src_key='passages',
+                   subject=None, CoT_prompt=None, logits=False, output_reason=True, add_ref=True):
     if dataset == 'Truthful_QA':
         content = 'I will give a question and some answer choices, please select the only correct answer.\n\n'
         content += 'Question:{}\n'.format(line['question'])
@@ -287,15 +338,9 @@ def prompt_fomular(line:dict, dataset, model=None, shuffle=True, extral_ask=True
     elif dataset == 'Temporal_QA':
         content = 'You are tasked with a question-answer task. For each question, you need to provide the reason and then output the answer in the following JSON format.\n'
         content += '{"reason": "<detailed reasoning>", "answer": "<the answer>"}\n'
-        # if extral_ask:
-        #     content += 'If you encounter a question that requires additional external information that you don\'t currently have, you must state in your reasoning what external knowledge is required. In such cases, the answer field should be: "I need external knowledge.".Here is an example of the expected output format:\n'
-        #     content += '{"reason": "I need information about the historical significance of the event to answer this question accurately.","answer": "I need external knowledge."}\n'
         content += '\nHere are some examples of how you should respond:\n'
         content += '**Question:** What is the capital of France?\n'
         content += '**Response:**\n{"reason": "France\'s capital city, Paris, is widely recognized and documented in various reliable sources including encyclopedias and official government websites.","answer": "Paris"}\n'
-        # if extral_ask:
-        #     content += '**Question:** What was the impact of the Treaty of Versailles on Germany?\n'
-        #     content += '**Response:**\n{"reason": "To accurately discuss the impact of the Treaty of Versailles on Germany, I need detailed information on the economic, political, and social consequences it had on the country post-World War I.","answer": "I need external knowledge."}\n\n'
         if rag and (len(line[src_key]) != 0):
             content += '\nNow, before you answer the question, you can read the following references to ensure your answers are accurate. It is worth noting that when there is no relevant information in the reference, you can rely on the knowledge you have to answer the question:\n\n'
             content += external_knowledge_prompt(line, src_key, local_check=False)
@@ -306,7 +351,16 @@ def prompt_fomular(line:dict, dataset, model=None, shuffle=True, extral_ask=True
         return content
     elif dataset == 'MMLU':
         content = CoT_prompt
-        content += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question and four candidate answers (A, B, C and D), choose the best answer.\nQuestion: {}\nA. {}\nB. {}\nC. {}\nD. {}\nYour response should end with \"The best answer is [the_answer_letter]\" where the [the_answer_letter] is one of A, B, C or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nThe best answer is'.format(line['Question'], line['A'], line['B'], line['C'], line['D'])
+        if add_ref:
+            content += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question, relevant references, and four candidate answers (A, B, C, and D), explain your reasoning step-by-step based on the references and then choose the best answer.\n\n'
+            content += 'Reference 1:\n{}\n\n'.format(line['query_pseudo_doc'])
+            content += 'Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\n'.format(line['Question'], line['A'], line['B'], line['C'], line['D'])
+            content += 'Your response should include the reasoning "Reasoning: [reasoning_text]" based on the references, and end with "The best answer is [the_answer_letter]" where [the_answer_letter] is one of A, B, C, or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nReasoning: '
+        elif output_reason:
+            content += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question and four candidate answers (A, B, C and D), explain your reasoning step-by-step and then choose the best answer.\n'
+            content += 'Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\nYour response should include the reasoning \"Reasoning: [reasoning_text]\" and end with \"The best answer is [the_answer_letter]\" where the [the_answer_letter] is one of A, B, C or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nReasoning: '.format(line['Question'], line['A'], line['B'], line['C'], line['D'])
+        else:
+            content += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question and four candidate answers (A, B, C and D), choose the best answer.\nQuestion: {}\nA. {}\nB. {}\nC. {}\nD. {}\nYour response should end with \"The best answer is [the_answer_letter]\" where the [the_answer_letter] is one of A, B, C or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nThe best answer is'.format(line['Question'], line['A'], line['B'], line['C'], line['D'])
         
         return content
 
@@ -314,12 +368,42 @@ def process_file(data, output_file, args, model=None, tokenizer=None, pipeline=N
                 dev_file=None, subject=None):
     if args.dataset_name == 'MMLU':
         CoT_prompt = ''
-        i = 1
+
         for dev_line in dev_file:
             dev_line = json.loads(dev_line)
-            CoT_prompt += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question and four candidate answers (A, B, C and D), choose the best answer.\n'
-            CoT_prompt += 'Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\nYour response should end with \"The best answer is [the_answer_letter]\" where the [the_answer_letter] is one of A, B, C or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nThe best answer is {}.<|eot_id|>'.format(dev_line['Question'], dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'], dev_line['Answer'])
-            i += 1
+            if args.rag:
+                CoT_prompt += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question, relevant references, and four candidate answers (A, B, C, and D), explain your reasoning step-by-step based on the references and then choose the best answer.\n\n'
+                CoT_prompt += 'Reference 1:\n{}\n\n'.format(dev_line['query_pseudo_doc'])
+                CoT_prompt += 'Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\n'.format(dev_line['Question'], dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'])
+                CoT_prompt += 'Your response should include the reasoning "Reasoning: [reasoning_text]" based on the references, and end with "The best answer is [the_answer_letter]" where [the_answer_letter] is one of A, B, C, or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nReasoning: {}\n\nThe best answer is {}.<|eot_id|>'.format(dev_line['query_pseudo_doc'] ,dev_line['Answer'])
+            
+            elif args.generate_reference:
+                user_prompt = 'I have a list of multiple-choice questions, and I\'d like you to write a reference paragraph for each question. These paragraphs will assist the person coming after me in understanding the context of the question and choices, enabling them to amplify and answer the questions concisely. You don\'t need to answer the questions directly, just provide enough information to guide the next person.\n'
+                if len(dev_line['query_entity']) != 0:
+                    user_prompt += 'To make your reference paragraph more accurate, I will provide you with the entities related to the question and you can refer to them.\n'
+
+                user_prompt += 'Question: {}\n'.format(dev_line['Question'])
+                user_prompt += 'A. {}\nB. {}\nC. {}\nD. {}\n'.format(dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'])
+                if len(dev_line['query_entity']) != 0:
+                    user_prompt += '\nRelated Entities:\n'
+                    for i, ent in enumerate(dev_line['query_entity'].values()):
+                        user_prompt += '{}. {}: {}\n'.format(i + 1, ent['entity'], ent['description'])
+                user_prompt += 'Your response should start with "Reference: [reference_paragraph]" where the [reference_paragraph] is the reference you write.\n'
+
+                question_prompt = '<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|>\n<|start_header_id|>assistant<|end_header_id|>\n\n{}'.format(user_prompt, dev_line['query_pseudo_doc'])
+
+                CoT_prompt += question_prompt
+
+            elif args.output_reason:
+                reason_str = dev_line['reason']
+                reason_str = reason_str.lstrip('Reasoning:')
+                reason_str = reason_str.strip()
+                CoT_prompt += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question and four candidate answers (A, B, C and D), explain your reasoning step-by-step and then choose the best answer.\n'
+                CoT_prompt += 'Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\nYour response should include the reasoning \"Reasoning: [reasoning_text]\" and end with \"The best answer is [the_answer_letter]\" where the [the_answer_letter] is one of A, B, C or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nReasoning: {}\n\nThe best answer is {}.<|eot_id|>'.format(dev_line['Question'], dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'], reason_str ,dev_line['Answer'])
+            else:
+                CoT_prompt += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question and four candidate answers (A, B, C and D), choose the best answer.\n'
+                CoT_prompt += 'Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\nYour response should end with \"The best answer is [the_answer_letter]\" where the [the_answer_letter] is one of A, B, C or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nThe best answer is {}.<|eot_id|>'.format(dev_line['Question'], dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'], dev_line['Answer'])
+        
     i = 0
     for line in tqdm(data):
         if args.line:
@@ -331,13 +415,17 @@ def process_file(data, output_file, args, model=None, tokenizer=None, pipeline=N
         elif args.decompose:
             prompt = prompt_fomular_decompose_question(line)
         elif args.generate_reference:
-            prompt = prompt_fomular_reference_generate(line, add_entity=True)
+            if args.dataset_name == 'MMLU':
+                prompt = prompt_fomular_reference_generate(line, add_entity=True, have_choice=True, CoT_prompt=CoT_prompt)
+            else:
+                prompt = prompt_fomular_reference_generate(line, add_entity=True)
         elif args.local_check:
             prompt = prompt_fomular_kg_local_check(line)
         elif args.extract_triple:
             prompt = prompt_fomular_triple_extraction(line, provide_entity=True)
         else:
-            prompt = prompt_fomular(line, args.dataset_name, model=args.model_name, extral_ask=args.self_ask, rag=args.rag, CoT_prompt=CoT_prompt, subject=subject)
+            prompt = prompt_fomular(line, args.dataset_name, model=args.model_name, rag=args.rag, 
+                                    CoT_prompt=CoT_prompt, subject=subject)
 
         messages = [{"role": "user", "content": prompt}]
         if args.model_name == 'Mistral':
@@ -413,9 +501,9 @@ def main(args):
         from mmlu_categories import subcategories, categories
         
         #load src dir
-        subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(args.dataset_path, "dev")) if "{}_dev.json".format(args.mmlu_input) in f])
+        subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(args.dataset_path, "dev")) if "_dev.json" in f])
         if args.exp_name == '':
-            exp_name = 'raw'
+            exp_name = 'test'
         else:
             exp_name = args.exp_name
         # mkdir save dir
@@ -431,8 +519,15 @@ def main(args):
             if len(set(subcategories[sub]) & set(train_categories)) == 0:
                 continue
             print(sub)
-            dev_file_name = os.path.join(args.dataset_path, "dev", sub + "{}_dev.json".format(args.mmlu_input))
-            input_file_name = os.path.join(args.dataset_path, "test", sub + "{}_test.json".format(args.mmlu_input))
+            if len(args.dev_input) > 0:
+                dev_file_name = os.path.join(args.dataset_path, "dev", args.dev_input, sub + "_dev.json")
+            else:
+                dev_file_name = os.path.join(args.dataset_path, "dev", sub + "_dev.json")
+
+            if len(args.test_input) > 0:
+                input_file_name = os.path.join(args.dataset_path, "test", args.test_input, sub + "_test.json")
+            else:
+                input_file_name = os.path.join(args.dataset_path, "test", sub + "_test.json")
             dev_file = open(dev_file_name)
             input_file = open(input_file_name)
 
@@ -449,14 +544,14 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_name', '-d', type=str, required=True, help="Dataset Name")
     parser.add_argument('--dataset_path', type=str, help="Dataset Path", default=None)
     parser.add_argument('--model_name', '-m', type=str, required=True, help='Model Name')
-    parser.add_argument('--exp_name','-e',type=str, default='', help='Exp Name')
+    parser.add_argument('--exp_name','-e',type=str, default='test', help='Exp Name')
     parser.add_argument('--model_path','-p',type=str, required=True, help="Path to model")
     parser.add_argument('--MMLU_categories', type=str, help='MMLU category', choices=["STEM", "humanities", "social sciences", "other (business, health, misc.)"],
                         default=["STEM", "humanities", "social sciences", "other (business, health, misc.)"], nargs="+") # --MMLU_categories STEM humanities
-    parser.add_argument('--mmlu_input',type=str, help="MMLU input src string", default='')
+    parser.add_argument('--dev_input',type=str, help="MMLU input dev sub dir", default='')
+    parser.add_argument('--test_input',type=str, help="MMLU input test sub dir", default='')
     parser.add_argument('--test', action='store_true', help="if Test")
     parser.add_argument('--line', action='store_true', help="if Process by line")
-    parser.add_argument('--self_ask', action='store_true', help="if Self Ask")
     parser.add_argument('--rag', action='store_true', help="if Rag")
     parser.add_argument('--exinfo_judge', action='store_true', help="if External Information Filter by Pair")
     parser.add_argument('--summary', action='store_true', help="Summary Process")
@@ -465,6 +560,7 @@ if __name__ == '__main__':
     parser.add_argument('--local_check', action='store_true', help="Chech the reliability of generate passages with local entity")
     parser.add_argument('--extract_triple', action='store_true', help="Extract triples in Text")
     parser.add_argument('--logits', action='store_true', help="For mult-choice QA, use logits to choose answer")
+    parser.add_argument('--output_reason', action='store_true', help="If LLM output_reason")
 
     args = parser.parse_args()
     main(args)

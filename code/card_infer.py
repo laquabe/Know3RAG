@@ -18,7 +18,7 @@ output_f = open('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/cards/{}_{}.json'.f
 for line in tqdm(data):
     line = json.loads(line.strip())
     if task == 'entity':
-        for ent in line['question_entity'].values():
+        for ent in line['query_entity'].values():
             prompt = '{}, {}'.format(ent['entity'], ent['description'])
             knowl = card(prompt)
             knowl = [obj["generated_text"][len(prompt)+1:] for obj in knowl]

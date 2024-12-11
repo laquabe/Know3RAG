@@ -289,7 +289,7 @@ def summary_process(line:dict):
             exit()
     return res_json, flag
 
-def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, tgt_key_name=None):
+def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, tgt_key_name=None, src_key_name=None):
     '''
     summary: phrase llm response to key summary\n
     map_decompose: deliver sub-question to passages\n
@@ -313,12 +313,17 @@ def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, 
                     line['summary'] = line['passages']
                     error_num += 1
             if func == 'reference':
-                res, json_flag = json_decode(line['llm_response'])
-                if json_flag:
-                    line['pseudo_doc'] = res['reference_paragraph']
-                else:
-                    line['pseudo_doc'] = line['Question']
-                    error_num += 1
+                '''old for json phrase'''
+                # res, json_flag = json_decode(line['llm_response'])
+                # if json_flag:
+                #     line['pseudo_doc'] = res['reference_paragraph']
+                # else:
+                #     line['pseudo_doc'] = line['Question']
+                #     error_num += 1
+                '''new for str'''
+                line[tgt_key_name] = line[src_key_name].lstrip('Reference:').strip()
+                if line[tgt_key_name] == line[src_key_name]:
+                    print(line[src_key_name])
             if func == 'triple_extract':
                 res, json_flag = triple_extraction_decode(line['llm_response'])
                 if json_flag:
@@ -412,8 +417,34 @@ if __name__ == "__main__":
     #              '/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/pseudoEntity_card_question_local_check_filter_dev.json',
     #              'filter', summary_map_dict=None)
     # subq_dict = read_map('/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/pseudo_doc_generate_question_entity.json', 'pseudo_doc')
-    process_by_line('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/Llama/entity_knowledge-card-all_triples_woentity.json',
-                    '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/entity_knowledge-card-all_triples_woentity.json',
-                    'triple_extract', id2subq_dict=None)
+    # process_by_line('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/Llama/entity_knowledge-card-all_triples_woentity.json',
+    #                 '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/entity_knowledge-card-all_triples_woentity.json',
+    #                 'triple_extract', id2subq_dict=None)
     # res, _ = triple_extraction_decode("I'll extract the relationships between the provided entities from the given text.\n\nAfter analyzing the text and the provided entities, I found the following relationships:\n\n[{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"got completed\", \"object\": \"None\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"must be created\", \"object\": \"murtis\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"made\", \"object\": \"murtis\"}, \n{\"subject\": \"shanthamadurai\", \"predicate\": \"is brought out\", \"object\": \"moon light\"}, \n{\"subject\": \"moon light\", \"predicate\": \"is brought\", \"object\": \"house\"}]\n\nNote that the entity \"reference\" is not related to any other entity in the text, so it's not included in the output. Also, the entity \"question\" is not directly related to any other entity, but it's mentioned in the context of \"lakshmi kalyanam\", so I didn't include it as a separate entity.\n\nThe entity \"purpose\" is related to the creation of murtis, but it's not a direct relationship, so I didn't include it as a separate triple. Similarly, the entity \"reason\" is mentioned as the same reason as they made murtis for kalyanam, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"ceremony\" is mentioned in the context of creating murtis, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"kalyanam\" is mentioned multiple times, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"light\" is mentioned as \"moon light\", but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"place\" is mentioned as the place where shanthamadurai was staying, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"house\" is mentioned as the place where the moon light is brought, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"moon\" is mentioned as the source of the moon light, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nSo, the final output is:\n\n[{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"got completed\", \"object\": \"None\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"must be created\", \"object\": \"murtis\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"made\", \"object\": \"murtis\"}, \n{\"subject\": \"shanthamadurai\", \"predicate\": \"is brought out\", \"object\": \"moon light\"}, \n{\"subject\": \"moon light\", \"predicate\": \"is brought\", \"object\": \"house\"}]I'll extract the relationships between the provided entities from the given text.\n\nAfter analyzing the text and the provided entities, I found the following relationships:\n\n[{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"got completed\", \"object\": \"None\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"must be created\", \"object\": \"murtis\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"made\", \"object\": \"murtis\"}, \n{\"subject\": \"shanthamadurai\", \"predicate\": \"is brought out\", \"object\": \"moon light\"}, \n{\"subject\": \"moon light\", \"predicate\": \"is brought\", \"object\": \"house\"}]\n\nNote that the entity \"reference\" is not related to any other entity in the text, so it's not included in the output. Also, the entity \"question\" is not directly related to any other entity, but it's mentioned in the context of \"lakshmi kalyanam\", so I didn't include it as a separate entity.\n\nThe entity \"purpose\" is related to the creation of murtis, but it's not a direct relationship, so I didn't include it as a separate triple. Similarly, the entity \"reason\" is mentioned as the same reason as they made murtis for kalyanam, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"ceremony\" is mentioned in the context of creating murtis, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"kalyanam\" is mentioned multiple times, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"light\" is mentioned as \"moon light\", but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"place\" is mentioned as the place where shanthamadurai was staying, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"house\" is mentioned as the place where the moon light is brought, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"moon\" is mentioned as the source of the moon light, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nSo, the final output is:\n\n[{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"got completed\", \"object\": \"None\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"must be created\", \"object\": \"murtis\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"made\", \"object\": \"murtis\"}, \n{\"subject\": \"shanthamadurai\", \"predicate\": \"is brought out\", \"object\": \"moon light\"}, \n{\"subject\": \"moon light\", \"predicate\": \"is brought\", \"object\": \"house\"}]")
     # print(res)
+    import os
+
+    dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/MMLU/data'
+    result_path = '/data/xkliu/LLMs/DocFixQA/result/MMLU'
+    input_dir = 'query_pseudo_doc'
+    output_dir = 'query_pseudo_doc'
+
+    #load src dir
+    subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(dataset_path, "dev")) if "_dev.json" in f])
+
+    # mkdir save dir
+    save_dir = os.path.join(dataset_path, 'test', output_dir)
+    if not os.path.exists(save_dir):
+        os.mkdir(save_dir)
+
+    for sub in subjects:
+        # if sub != 'clinical_knowledge':
+        #     continue
+        print(sub)
+        input_file_name = os.path.join(result_path, input_dir , sub + "_result.json")
+
+        output_file_name = os.path.join(save_dir, "{}_test.json".format(sub))
+
+        process_by_line(input_file_name,
+                        output_file_name,
+                        'reference', src_key_name='llm_response', tgt_key_name='query_pseudo_doc')

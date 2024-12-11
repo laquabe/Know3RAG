@@ -229,6 +229,28 @@ def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key):
                 output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
 
 if __name__ == '__main__':
-    input_file_path = '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/wiki/test.json'
-    output_file_path = '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/wiki/test_score.json'
-    process_by_line(input_file_path, output_file_path, func='entity_map',src_key='passages', tgt_key='triple_id_list')
+    # input_file_path = '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/wiki/test.json'
+    # output_file_path = '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/wiki/test_score.json'
+    # process_by_line(input_file_path, output_file_path, func='entity_map',src_key='passages', tgt_key='triple_id_list')
+    
+    '''MMLU'''
+
+    dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/MMLU/data'
+    mmlu_input = 'gpt4o_mini_explanation'
+    exp_name = 'query_el_raw'
+
+    #load src dir
+    subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(dataset_path, "dev")) if "_dev.json" in f])
+
+    # mkdir save dir
+    save_dir = os.path.join(dataset_path, 'test', exp_name)
+    if not os.path.exists(save_dir):
+        os.mkdir(save_dir)
+
+    for sub in subjects:
+        print(sub)
+        dev_file_name = os.path.join(dataset_path, "test", sub + "_test.json")
+
+        output_file_name = os.path.join(save_dir, "{}_test.json".format(sub))
+
+        process_by_line(dev_file_name, output_file_name, func='el',src_key='Question', tgt_key='query_entity')
