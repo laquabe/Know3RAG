@@ -352,7 +352,7 @@ def prompt_fomular(line:dict, dataset, model=None, shuffle=True, rag=False, src_
     elif dataset == 'MMLU':
         content = CoT_prompt
         if add_ref:
-            content += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question, relevant references, and four candidate answers (A, B, C, and D), explain your reasoning step-by-step based on the references and then choose the best answer.\n\n'
+            content += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question, references (maybe not useful), and four candidate answers (A, B, C, and D), explain your reasoning step-by-step based on the references and then choose the best answer. If there is no reference or you find the reference irrelevant, please choose the correct option based on your knowledge\n\n'
             content += 'Reference 1:\n{}\n\n'.format(line['query_pseudo_doc'])
             content += 'Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\n'.format(line['Question'], line['A'], line['B'], line['C'], line['D'])
             content += 'Your response should include the reasoning "Reasoning: [reasoning_text]" based on the references, and end with "The best answer is [the_answer_letter]" where [the_answer_letter] is one of A, B, C, or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nReasoning: '
@@ -372,7 +372,7 @@ def process_file(data, output_file, args, model=None, tokenizer=None, pipeline=N
         for dev_line in dev_file:
             dev_line = json.loads(dev_line)
             if args.rag:
-                CoT_prompt += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question, relevant references, and four candidate answers (A, B, C, and D), explain your reasoning step-by-step based on the references and then choose the best answer.\n\n'
+                CoT_prompt += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question, relevant references (maybe not useful), and four candidate answers (A, B, C, and D), explain your reasoning step-by-step based on the references and then choose the best answer. If there is no reference or you find the reference irrelevant, please choose the correct option based on your knowledge\n\n'
                 CoT_prompt += 'Reference 1:\n{}\n\n'.format(dev_line['query_pseudo_doc'])
                 CoT_prompt += 'Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\n'.format(dev_line['Question'], dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'])
                 CoT_prompt += 'Your response should include the reasoning "Reasoning: [reasoning_text]" based on the references, and end with "The best answer is [the_answer_letter]" where [the_answer_letter] is one of A, B, C, or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nReasoning: {}\n\nThe best answer is {}.<|eot_id|>'.format(dev_line['query_pseudo_doc'] ,dev_line['Answer'])

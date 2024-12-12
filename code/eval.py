@@ -180,8 +180,10 @@ def eval_line(line, dataset, model_name, answer_key, firstorlast='first'):
 
         if error_flag:
             pred_ans = pred.strip()
-            '''logits'''
-            pred_choice = pred_ans
+            # print(pred)
+            # exit()
+            # '''logits'''
+            # pred_choice = pred_ans
             '''text'''
             _, pred_choice = find_options_positions(pred_ans.lower(), ['a.', 'b.', 'c.', 'd.'])
             if pred_choice != None:
