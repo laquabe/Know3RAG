@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES']='7'
+os.environ['CUDA_VISIBLE_DEVICES']='1'
 import requests
 import json
 from tqdm import tqdm
@@ -48,7 +48,14 @@ def read_KG_relation(relation_file_name):
 
 if re_flag:
     r_dict, r_name_dict, tmp2wiki, r_des_embedding = read_KG_relation('datasets/relation.json')
-    
+
+def ner_with_spaCy(sentence:str):
+    '''
+    input: sentence[str]
+    output: List of entity(unlinked) [List]
+    '''
+
+
 def query_entity(entity_id):
     url = f"https://www.wikidata.org/wiki/Special:EntityData/{entity_id}.json"
 
@@ -88,21 +95,36 @@ def entity_linking_with_spacy(sentence:str, add_description=False):
     doc = nlp(sentence)
     # iterates over sentences and prints linked entities
     ent_dict = {}
+    ner_str = ''
+    ner_list = []
+    # print(len(doc.ents))
+    for ent in doc.ents:
+        # print(f"{ent.text} ({ent.label_}) - Start: {ent.start_char}, End: {ent.end_char}")
+        ner_str += ent.text
+        ner_list.append(ent.text)
+
     for ent in list(doc._.linkedEntities):
         # print('ID:Q{}. Ent: {}. Mention: {}.'.format(ent.get_id(), ent.get_label(), ent.get_span()))
         # filter one word small, as they usually not specific entity
         entity_name = ent.get_label()
+        mention = ent.get_span().text
         if entity_name == None:
             continue
-        if len(entity_name.split()) < 2 and entity_name.islower():
+        if len(mention) < 2:
             continue
+        if mention not in ner_list:
+            if mention not in ner_str:
+                continue
+            else:
+                if len(mention) <= 2:
+                    continue
 
         if add_description:
-            ent_dict[ent.get_span().text] = {'id': 'Q{}'.format(ent.get_id()), 'entity': ent.get_label(), 
+            ent_dict[mention] = {'id': 'Q{}'.format(ent.get_id()), 'entity': ent.get_label(), 
                                          'start':ent.get_span().start, 'end':ent.get_span().end,
                                          'description':ent.get_description()}
         else:
-            ent_dict[ent.get_span().text] = {'id': 'Q{}'.format(ent.get_id()), 'entity': ent.get_label(), 
+            ent_dict[mention] = {'id': 'Q{}'.format(ent.get_id()), 'entity': ent.get_label(), 
                                          'start':ent.get_span().start, 'end':ent.get_span().end}
     
     return ent_dict
@@ -202,7 +224,7 @@ def triple_mapping(triple_text_list:list, entity_id_mapping:dict, relation_id_ma
     
     return triple_id_list
 
-def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key):
+def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key, question_type='open'):
     with open(input_file_path) as input_f, \
         open(output_file_path, 'w') as output_f:
         i = 0
@@ -210,6 +232,8 @@ def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key):
             line = json.loads(line.strip())
             if func == 'el':
                 ques = line[src_key]
+                if question_type == 'choice':
+                    ques += '\n{}\n{}\n{}\n{}'.format(line['A'], line['B'], line['C'], line['D'])
                 ent_dict = entity_linking_with_spacy(ques, add_description=True)
                 line[tgt_key] = ent_dict
                 output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
@@ -236,21 +260,26 @@ if __name__ == '__main__':
     '''MMLU'''
 
     dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/MMLU/data'
-    mmlu_input = 'gpt4o_mini_explanation'
-    exp_name = 'query_el_raw'
+    input_path = '/data/xkliu/LLMs/DocFixQA/reference/MMLU'
+    output_path = '/data/xkliu/LLMs/DocFixQA/reference/MMLU'
+    mmlu_input = 'turn1_raw'
+    exp_name = 'turn1_el'
 
     #load src dir
     subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(dataset_path, "dev")) if "_dev.json" in f])
 
     # mkdir save dir
-    save_dir = os.path.join(dataset_path, 'test', exp_name)
+    save_dir = os.path.join(output_path, 'test', exp_name)
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
 
     for sub in subjects:
         print(sub)
-        dev_file_name = os.path.join(dataset_path, "test", sub + "_test.json")
+        # if sub != 'high_school_european_history':
+        #     continue
+
+        input_file_name = os.path.join(input_path, "test", mmlu_input, sub + "_test.json")
 
         output_file_name = os.path.join(save_dir, "{}_test.json".format(sub))
 
-        process_by_line(dev_file_name, output_file_name, func='el',src_key='Question', tgt_key='query_entity')
+        process_by_line(input_file_name, output_file_name, func='el',src_key='passages', tgt_key='passage_entity', question_type=None)

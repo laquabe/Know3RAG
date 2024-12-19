@@ -4,11 +4,11 @@ from tqdm import tqdm
 from utils import read_data
 
 max_new_tokens = 128    # default 100
-task = 'entity'
-card_name = 'knowledge-card-yago'   # knowledge-card-1btokens, knowledge-card-atomic, knowledge-card-reddit, knowledge-card-wikidata, knowledge-card-wikipedia
+task = 'choice'
+card_name = 'knowledge-card-yago'   # knowledge-card-1btokens, knowledge-card-atomic, knowledge-card-reddit, knowledge-card-wikidata, knowledge-card-wikipedia, knowledge-card-yago
 card_path = '/data/xkliu/LLMs/Knowledge_Card-main/cards/{}'.format(card_name)
-card_device = 8
-k = 3
+card_device = 3
+k = 1
 
 card = transformers.pipeline('text-generation', model=card_path, device = card_device, num_return_sequences=k, do_sample=True, max_new_tokens = max_new_tokens)
 
@@ -28,6 +28,20 @@ def process_line(data, output_f):
             prompt = line['pseudo_doc']
         if task == 'summary':
             prompt = line['summary']
+        if task == 'choice':
+            choice_list = ['A', 'B', 'C', 'D']
+            for choice in choice_list:
+                choice_str = str(line[choice])
+                if len(choice_str.split()) < 20:
+                    continue
+                else:
+                    prompt = choice_str
+                    knowl = card(prompt)
+                    knowl = [obj["generated_text"][len(prompt)+1:] for obj in knowl]
+                    line['generate'] = knowl
+                    output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
+
+            continue
         else:
             prompt = line['Question']
         knowl = card(prompt)
@@ -40,12 +54,12 @@ if __name__ == '__main__':
     from mmlu_categories import subcategories, categories
 
     dataset_path = 'datasets/MMLU/data'
-    input_dir = 'query_pseudo_doc' 
-    MMLU_categories = ["other (business, health, misc.)"]  # "STEM", "humanities", "social sciences", "other (business, health, misc.)"
+    input_dir = 'query_el_raw' 
+    MMLU_categories = ["STEM"]  # "STEM", "humanities", "social sciences", "other (business, health, misc.)"
     subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(dataset_path, "dev")) if "_dev.json" in f])
 
     # mkdir save dir
-    save_dir = os.path.join('knowledge_card_result', 'MMLU', "test", card_name)
+    save_dir = os.path.join('knowledge_card_result', 'MMLU', task, "test", card_name)
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
     # read category

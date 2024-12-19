@@ -50,7 +50,8 @@ def list2pair(input_file_name, output_file_name, func, line_mode=True):
                 src = line['generate']
                 for s in src:
                     new_line = copy.deepcopy(line)
-                    del new_line['passages']
+                    if 'passages' in new_line.keys():
+                        del new_line['passages']
                     del new_line['generate']
                     # s = s.split('.')
                     # s = '.'.join(s[:-1])
@@ -333,7 +334,7 @@ def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, 
                     line['llm_triple'] = []
                     error_num += 1
             if func == 'add_reference':
-                line['passages'] = line['pseudo_doc_entity']
+                line['passages'] = line['query_pseudo_doc']
             if func == 'add_question_entity':
                 line['question_entity'] = id2subq_dict[line['Id']]
             if func == 'add_key':
@@ -407,6 +408,17 @@ def read_map(input_file_name, map_func):
 
     return id2passage_dict
 
+def merge_file(input_file_list:list, output_file_name):
+    '''kc for entity & question'''
+    output_f = open(output_file_name, 'w')
+
+    for input_file_name in input_file_list:
+        if not os.path.exists(input_file_name):
+            continue
+        with open(input_file_name, 'r') as input_f:
+            for line in input_f:
+                output_f.write(line)
+
 if __name__ == "__main__":
     # read_data('Truthful_QA', '/data/xkliu/LLMs/DocFixQA/datasets/truthfulqa_mc_task.json')
     # list2pair('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/entity_knowledge-card-all_raw.json',
@@ -425,15 +437,18 @@ if __name__ == "__main__":
     import os
 
     dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/MMLU/data'
-    result_path = '/data/xkliu/LLMs/DocFixQA/result/MMLU'
-    input_dir = 'query_pseudo_doc'
-    output_dir = 'query_pseudo_doc'
+    input_path = '/data/xkliu/LLMs/DocFixQA/reference/MMLU'
+    input_dir = 'entity'
+    output_path = '/data/xkliu/LLMs/DocFixQA/reference/MMLU'
+    output_dir = 'turn1_raw'
+    kc_name = 'knowledge-card-wikipedia'
+    ref_src = 'entity'
 
     #load src dir
     subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(dataset_path, "dev")) if "_dev.json" in f])
 
     # mkdir save dir
-    save_dir = os.path.join(dataset_path, 'test', output_dir)
+    save_dir = os.path.join(output_path, 'test', output_dir)
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
 
@@ -441,10 +456,20 @@ if __name__ == "__main__":
         # if sub != 'clinical_knowledge':
         #     continue
         print(sub)
-        input_file_name = os.path.join(result_path, input_dir , sub + "_result.json")
+        # input_file_name = os.path.join(input_path, input_dir, 'test', kc_name, sub + "_kc.json")
+        input_file_list = [
+            os.path.join(input_path, 'test', 'entity', "{}_knowledge-card-wikipedia.json".format(sub)),
+            os.path.join(input_path, 'test', 'entity', "{}_knowledge-card-yago.json".format(sub)),
+            os.path.join(input_path, 'test', 'pseudo_doc', "{}_pseudo_doc.json".format(sub)),
+            os.path.join(input_path, 'test', 'question', "{}_knowledge-card-wikipedia.json".format(sub)),
+            os.path.join(input_path, 'test', 'question', "{}_knowledge-card-yago.json".format(sub)),
+            os.path.join(input_path, 'test', 'choice', "{}_knowledge-card-wikipedia.json".format(sub)),
+            os.path.join(input_path, 'test', 'choice', "{}_knowledge-card-yago.json".format(sub))
+        ]
 
         output_file_name = os.path.join(save_dir, "{}_test.json".format(sub))
-
-        process_by_line(input_file_name,
-                        output_file_name,
-                        'reference', src_key_name='llm_response', tgt_key_name='query_pseudo_doc')
+        # if not os.path.exists(input_file_name):
+        #     continue
+        merge_file(input_file_list, output_file_name)
+        # process_by_line(input_file_name, output_file_name, 'reference', tgt_key_name='passages', src_key_name='llm_response')
+        # list2pair(input_file_name, output_file_name, 'knowledge_card', line_mode=True)

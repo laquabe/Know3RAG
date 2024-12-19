@@ -5,165 +5,140 @@ import json
 from tqdm import tqdm
 import argparse
 '''
-Here’s the revised prompt based on your updated task description:
+Here’s a revised version of your prompt, tailored to be simpler and more intuitive for the LLM to follow:
 
 ---
 
-## Task Name:  
-Extract Relationships between Provided Entities from a Text
+I have a task that requires your help in extracting relationships between predefined entities in a given text. You will be provided with a list of specific entities, and your job is to extract triples that represent relationships between these entities. Each triple should include a **subject**, **predicate**, and **object** taken directly from the text, where the **subject** and **object** must be from the predefined list of entities. If no meaningful relationships are found between the entities, return **None**.
 
-## Task Description:  
-Your task is to extract triples that represent relationships between a set of **predefined entities** based on the provided text. The subject and object of each triple must come **only** from the list of entities that I provide. If no meaningful relationships are found between the entities, return **None**.
+### Hint:
+- The **subject** and **object** should **only** come from the list of predefined entities.
+- Extract the subject, predicate, and object exactly as they appear in the text.
+- If no valid relationships are found between the provided entities, return **None**.
+- Output the extracted triples in the format:  
+  **Extracted triples: [list of triples]**.
 
-### Task Input:  
-1. A piece of text.
-2. A list of possible entities.
+Here’s an example with a multi-round dialog to guide you:
 
-### Task Output:  
-A list of triples in JSON format, or **None** if no valid relationships are found.
-
-### JSON Format for Triples:
-```json
-[
-    {
-        "subject": "subject_entity",
-        "predicate": "predicate_relation",
-        "object": "object_entity"
-    }
-]
-```
-
-### Guidelines:
-- The **subject** and **object** of the triple must come from the list of predefined entities. Do not extract any other words as entities.
-- Use **exact phrases** from the text for the predicate (relationship) between the entities. Do not rephrase or summarize.
-- If there are no valid relationships between the provided entities, return **None**.
-
-### Examples:
-
-#### Example 1:  
+**User:**  
 **Input Text:**  
-"Paris is the capital of France."  
+"Albert Einstein was born in Ulm, Germany in 1879."  
 **Entities Provided:**  
-["Paris", "France"]
+["Albert Einstein", "Ulm", "Germany"]
 
-**Output JSON:**
-```json
-[
-    {
-        "subject": "Paris",
-        "predicate": "is the capital of",
-        "object": "France"
-    }
-]
-```
+**Assistant:**  
+**Extracted triples:**  
+[{"subject": "Albert Einstein", "predicate": "was born in", "object": "Ulm"}, {"subject": "Albert Einstein", "predicate": "was born in", "object": "Germany"}]  
 
-#### Example 2:  
-**Input Text:**  
-"Einstein developed the theory of relativity."  
-**Entities Provided:**  
-["Einstein", "the theory of relativity"]
-
-**Output JSON:**
-```json
-[
-    {
-        "subject": "Einstein",
-        "predicate": "developed",
-        "object": "the theory of relativity"
-    }
-]
-```
-
-#### Example 3:  
+**User:**  
 **Input Text:**  
 "She is a member of the organization."  
 **Entities Provided:**  
 ["the organization"]
 
-**Output JSON:**  
-```json
-None
-```
+**Assistant:**  
+**Extracted triples:**  
+None  
 
-#### Example 4:  
+Now, please extract the relationships between the provided entities in the following text:
+
 **Input Text:**  
-"The Nile is the longest river in the world, flowing through Egypt."  
+{line['passages']}  
 **Entities Provided:**  
-["The Nile", "Egypt"]
+{get_entity_list(line)}
 
-**Output JSON:**
-```json
-[
-    {
-        "subject": "The Nile",
-        "predicate": "flows through",
-        "object": "Egypt"
-    }
-]
-```
-
-### Additional Notes:
-- Ensure that the subject and object are always chosen from the provided entity list.
-- If no valid relationships exist between the entities in the text, return **None**.
-- Ensure all outputs are in valid JSON format.
+**Extracted triples:**  
 
 ---
 
-This prompt reflects the updated requirement of working with predefined entities, helping ensure your friend extracts valid relationships only between those entities.
+This version introduces the task in a clearer, more direct way, with an example that aligns with the multi-round dialog format. It also specifies the output format and simplifies the instructions. Would you like any further changes?
 '''
 def get_entity_list(line:dict):
-    return list(line['passage_entity'].keys())
+    return list(line['query_entity'].keys())
 
-def prompt_fomular_triple_extraction(line:dict, provide_entity=False):
-    if provide_entity == False:
-        content = '## Task Name:\nExtract Triples from a Text\n\n'
-        content += '## Task Description:\nA **triple** is the fundamental unit in a knowledge graph, represented in the form of **subject-predicate-object**. Your task is to extract meaningful triples from a provided text. Each triple should consist of **entities** as the subject and object, avoiding generic or abstract nouns such as "a member" or "the person." The words inside the triple (subject, predicate, object) should come **directly from the text**, without rephrasing or summarizing. If no meaningful triples can be extracted, return **None**.\n\n'
-        content += '### Task Input: \nYou will be given a piece of text.\n\n'
-        content += '### Task Output: \nA list of triples in JSON format, or **None** if no valid triples are found.\n\n'
-        content += '### JSON Format for Triples:\n[{"subject": "subject_name", "predicate": "predicate_relation", "object": "object_name"}, {"subject": "subject_name","predicate": "predicate_relation","object": "object_name"}]\n\n'
-        content += '### Guidelines: - **Entities** in the subject and object fields should be specific and identifiable, like "Einstein" or "France." Avoid extracting generic or abstract nouns like "a member" or "the person".\n- Use **exact phrases** from the original text for the subject, predicate, and object. Do not rephrase or summarize.\n- If the text contains no useful triples (e.g., only generic nouns or no clear entities), return **None**.\n\n'
-        content += '### Examples:'
-        content += '#### Example 1: \n**Input Text:**  \n"Paris is the capital of France."\n**Output JSON:**\n[{"subject": "Paris", "predicate": "is the capital of", "object": "France"}]\n\n'
-        content += '#### Example 2: \n**Input Text:**  \n"She is a member of the organization.\n"**Output JSON:**\nNone\n\n'
-        content += '### Additional Notes:\n- Ensure that the subject, predicate, and object are extracted exactly as they appear in the text.\n- If no valid entities are found in a sentence, do not force the extraction of triples. Simply return **None**\n- Ensure all outputs are in valid JSON format.\n\n\n'
-        content += 'Now, Here is the text, please follow the above instruction to extract the triples:\n'
-        content += '**Input Text:** \n{}\n'.format(line['passages'])
-        content += '**Output JSON:** \n'
+def prompt_fomular_triple_extraction(line:dict):
+    system_prompt = 'I have a task that requires your help in extracting relationships between predefined entities in a given text. You will be provided with a list of specific entities, and your job is to extract triples that represent relationships between these entities. Each triple should include a subject, predicate, and object taken directly from the text, where the subject and object must be from the predefined list of entities. If no meaningful relationships are found between the entities, return None.\n'
+    system_prompt += 'Hint:\n'
+    system_prompt += '- The subject and object should only come from the list of predefined entities.\n'
+    system_prompt += '- Extract the subject, predicate, and object exactly as they appear in the text.\n'
+    system_prompt += '- If no valid relationships are found between the provided entities, return None.\n'
+    system_prompt += '- Output the extracted triples in the format: Extracted triples: [list of triples].\n'
+    user_0 = 'Please extract the triples in the text. If no hint is matched, output None. the output format is Extracted triples: [list of triples].\n'
+    user_0 += 'Text: Albert Einstein was born in Ulm, Germany in 1879.\n'
+    user_0 += 'Entities: Albert Einstein, Ulm, Germany\n'
+    assist_0 = 'Extracted triples: [{"subject": "Albert Einstein", "predicate": "was born in", "object": "Ulm"}, {"subject": "Albert Einstein", "predicate": "was born in", "object": "Germany"}]'
+    user_1 = 'Please extract the triples in the text. If no hint is matched, output None. the output format is Extracted triples: [list of triples].\n'
+    user_1 += 'Text: She is a member of the organization.\n'
+    user_1 += 'Entities: the organization\n'
+    assist_1 = 'Extracted triples: None\n'
+    user_2 = 'Please extract the triples in the text. If no hint is matched, output None. the output format is Extracted triples: [list of triples].\n'
+    user_2 += 'Text: {}\n'.format(line['passages'])
+    user_2 += 'Entities:'
+    for ent in line['passage_entity']:
+        user_2 += ' {},'.format(ent)
+    user_2.rstrip(',')
+    user_2 += '\n'
+    assist_2 = 'Extracted triples:'
 
-    else:
-        content = '## Task Name: \nExtract Relationships between Provided Entities from a Text\n\n'
-        content += '## Task Description: \nYour task is to extract triples that represent relationships between a set of **predefined entities** based on the provided text. The subject and object of each triple must come **only** from the list of entities that I provide. If no meaningful relationships are found between the entities, return **None**.\n\n'
-        content += '### Task Input: \n1. A piece of text.\n2. A list of possible entities.\n\n'
-        content += '### Task Output:  \nA list of triples in JSON format, or **None** if no valid relationships are found.\n\n'
-        content += '### JSON Format for Triples:\n[{"subject": "subject_name", "predicate": "predicate_relation", "object": "object_name"}, {"subject": "subject_name","predicate": "predicate_relation","object": "object_name"}]\n\n'
-        content += '### Guidelines: \n- The **subject** and **object** of the triple must come from the list of predefined entities. Do not extract any other words as entities.\n- If there are no valid relationships between the provided entities, return **None**.\n\n'
-        content += '### Examples:\n\n'
-        content += '#### Example 1: \n**Input Text:** \n"Paris is the capital of France."\n**Entities Provided:** \n["Paris", "France"]\n\n'
-        content += '**Output JSON:**\n[{"subject": "Paris", "predicate": "is the capital of", "object": "France"}]\n\n'
-        content += '#### Example 2: \n**Input Text:**  \n"Einstein developed the theory of relativity."  \n**Entities Provided:**  \n["Einstein", "the theory of relativity"]\n\n'
-        content += '**Output JSON:**[{"subject": "Einstein", "predicate": "developed", "object": "the theory of relativity"}]\n\n'
-        content += '#### Example 3:  \n**Input Text:**  \n"She is a member of the organization."  \n**Entities Provided:**  \n["the organization"]\n\n'
-        content += '**Output JSON:** \nNone\n\n'
-        content += '#### Example 4:  **Input Text:**  \n"The Nile is the longest river in the world, flowing through Egypt."  \n**Entities Provided:**  \n["The Nile", "Egypt"]\n\n'
-        content += '**Output JSON:**\n[{"subject": "The Nile", "predicate": "flows through", "object": "Egypt"}]\n\n'
-        content += '### Real Data:\n\n'
-        content += 'Input Text:**  \n{}\n**Entities Provided:**\n{}\n\n'.format(line['passages'], get_entity_list(line))
-        content += '**Output JSON:**\n'
+    content = '<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{}<|eot_id|>'.format(system_prompt)
+    content += '<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|>'.format(user_0)
+    content += '<|start_header_id|>assistant<|end_header_id|>\n\n{}<|eot_id|>'.format(assist_0)
+    content += '<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|>'.format(user_1)
+    content += '<|start_header_id|>assistant<|end_header_id|>\n\n{}<|eot_id|>'.format(assist_1)
+    content += '<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|>'.format(user_2)
+    content += '<|start_header_id|>assistant<|end_header_id|>\n\n{}'.format(assist_2)
+
     return content
 
-def prompt_fomular_kg_local_check(line:dict):
-    content = 'I need your help determining the reliability of a passage, and I’ve provided descriptions of the relevant entities mentioned in the text. Here are some hints:\n'
-    content += '1. **Entity Accuracy**: Check if the details about the entities (e.g., names, attributes, roles) match the descriptions I’ve provided. Note that we do not require all relevant entities to appear in the article, you only need to verify that the entities present in the text do not conflict with the entities provided. You also do not need to check the relationships between the entities. However, if none of the entities appear, then the passage should be unreliable.\n'
-    # content += '2. **Relation Validity**: Review the relationships between the entities. Are these relationships correctly represented according to the descriptions, or do they seem inconsistent?\n'
-    # content += '3. **Consistency with Known Information**: Does the passage align with what is commonly known or accepted about the entities and their interactions?\n'
-    # content += '4. **Context and Reliability**: Based on the above checks, please assess whether the passage is reliable overall. If there are any doubts or questionable points, provide your reasoning.\n\n'
-    content += 'Please output your final evaluation in the following JSON format:\n'
-    content += '{"reason": [your explanation for the decision],"reliability": "yes" or "no"}\n\n'
-    content += 'Here is the Passages:\n{}\n\n'.format(line['passages'])
-    content += 'Here are the relevant entities:\n'
-    for i, ent in enumerate(line['question_entity'].values()):
-        content += '{}.{}: {}\n'.format(i + 1, ent['entity'], ent['description'])
-    content += '\nOutput:\n'
+def prompt_fomular_kg_local_check(line:dict, have_choice=False):
+    system_prompt = 'I need your help determining the reliability of a passage in the context of its ability to answer a specific question. I might provide some entities to help you better understand the problem. Here are the key considerations:\n'
+    system_prompt += '1. Passage Relevance: Check if the passage provides information relevant to answering the question. Even if the passage does not directly mention the entities, it should address the key concepts or ideas related to the question. If the passage does not contribute meaningfully to answering the question, it may be unreliable.\n'
+    system_prompt += '2. Entity Accuracy: The entities provided are from the question and may not appear in the passage. These entities are meant to help you understand the context of the question. If the passage conflicts with the entities provided (e.g., incorrect descriptions or relationships), this could affect its reliability.\n'
+    system_prompt += '3. Overall Reliability: Based on the relevance of the passage to the question and the accuracy of the entities, assess whether the passage is reliable for answering the question. If there are doubts or inconsistencies, provide a clear explanation.\n'
+    
+    user_0 = 'Confirm that the article is reliable for the question. Provide your reasoning for the reliability decision, and end your response with: "The reliability of the passage is [yes or no]."\n'
+    if have_choice:
+        user_0 += 'Question: What is the nutritional value of an apple?\nA. High in fiber and vitamins.\nB Low in calories but high in protein.\nC. Rich in fats.D. No nutritional value\n'
+    else:
+        user_0 += 'Question: What is the nutritional value of an apple?\n'
+    user_0 += 'Entities:\n'
+    user_0 += '1. Apple: A fruit known for its nutritional benefits, such as fiber and vitamins.\n'
+    user_0 += 'Passage: An apple is a nutritious fruit rich in fiber, vitamins, and antioxidants.\n'
+     
+    assist_0 = 'Explanation: The passage provides relevant information about the nutritional value of an apple, aligning with the question. The entity "Apple" refers to the fruit, which matches the context of the question. The reliability of the passage is yes.'
+    
+    user_1 = 'Confirm that the article is reliable for the question. Provide your reasoning for the reliability decision, and end your response with: "The reliability of the passage is [yes or no]."\n'
+    if have_choice:
+        user_1 += 'Question: What is the CEO of Apple Inc.?\n'
+    else:
+        user_1 += 'Question: What is the CEO of Apple Inc.?\nA. Tim Cook\nB. Steve Jobs\nC. Elon Musk\nD. Satya Nadella\n'
+    user_1 += 'Entities:\n'
+    user_1 += '1. Apple Inc.: A technology company, known for products like the iPhone and Mac computers.\n'
+    user_1 += 'Passage: Apples are widely consumed fruits that come in different varieties, including Granny Smith and Red Delicious.\n'
+     
+    assist_1 = 'Explanation: The passage discusses apples as a fruit, which is unrelated to the question about the CEO of Apple Inc. The passage does not address the company or its leadership. The reliability of the passage is no.'
+
+
+    user_2 = 'Confirm that the article is reliable for the question. Provide your reasoning for the reliability decision, and end your response with: "The reliability of the passage is [yes or no]."\n'
+    if have_choice:
+        user_2 += 'Question: {}\n'.format(line['Question'])
+        user_2 += 'A. {}\nB. {}\nC. {}\nD. {}\n'.format(line['A'], line['B'], line['C'], line['D'])
+    else:
+        user_2 += 'Question: {}\n'.format(line['Question'])
+    if (len(line['query_entity'])):
+        user_2 += 'Entities:\n'
+        for i, ent in enumerate(line['query_entity'].values()):
+            user_2 += '{}. {}: {}\n'.format(i + 1, ent['entity'], ent['description'])
+    user_2 += 'Passage: {}\n'.format(line['passages'])
+    assist_2 = 'Explanation: '
+    
+    content = '<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{}<|eot_id|>'.format(system_prompt)
+    content += '<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|>'.format(user_0)
+    content += '<|start_header_id|>assistant<|end_header_id|>\n\n{}<|eot_id|>'.format(assist_0)
+    content += '<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|>'.format(user_1)
+    content += '<|start_header_id|>assistant<|end_header_id|>\n\n{}<|eot_id|>'.format(assist_1)
+    content += '<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|>'.format(user_2)
+    content += '<|start_header_id|>assistant<|end_header_id|>\n\n{}'.format(assist_2)
 
     return content
 
@@ -175,15 +150,15 @@ def prompt_fomular_reference_generate(line:dict, sub=False, add_entity=False, ha
         system_prompt += '1. Provide context or background information relevant to the question and choices.\n'
         system_prompt += '2. Include key facts, important dates if applicable.\n'
         system_prompt += '3. Keep the paragraphs concise but informative enough to guide a more detailed response.\n'
-        if add_entity:
-            system_prompt += '4. Please make sure that the paragraphs you generate do not conflict with the relevant entities.\n'
+        if add_entity and (len(line['query_entity'])):
+            system_prompt += '4. Please make sure that the paragraphs you generate do not conflict with the relevant entities if entities are accurate. (If the entities are inaccurate, ignore them.)\n'
         
         system_prompt = '<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{}<|eot_id|>\n'.format(system_prompt)
 
         if CoT_prompt == None:
             user_0 = 'I have a list of multiple-choice questions, and I\'d like you to write a reference paragraph for each question. These paragraphs will assist the person coming after me in understanding the context of the question and choices, enabling them to amplify and answer the questions concisely. You don\'t need to answer the questions directly, just provide enough information to guide the next person.\n'
             if add_entity and (len(line['query_entity'])):
-                user_0 += 'To make your reference paragraph more accurate, I will provide you with the entities related to the question and you can refer to them.\n'
+                user_0 += 'To make your reference passages more accurate, I\'m going to provide you with some entities inside the question that you can refer to them, but they\'re not necessarily accurate.\n'
 
             user_0 += '\nQuestion: Which city is the capital of France?\n'
             user_0 += 'A. Paris\nB. London\nC. Berlin\nD. Madrid\n'
@@ -200,7 +175,7 @@ def prompt_fomular_reference_generate(line:dict, sub=False, add_entity=False, ha
         
         user_1 = 'I have a list of multiple-choice questions, and I\'d like you to write a reference paragraph for each question. These paragraphs will assist the person coming after me in understanding the context of the question and choices, enabling them to amplify and answer the questions concisely. You don\'t need to answer the questions directly, just provide enough information to guide the next person.\n'
         if add_entity and (len(line['query_entity'])):
-            user_1 += 'To make your reference paragraph more accurate, I will provide you with the entities related to the question and you can refer to them.\n'
+            user_1 += 'To make your reference passages more accurate, I\'m going to provide you with some entities inside the question that you can refer to them, but they\'re not necessarily accurate.\n'
 
         user_1 += 'Question: {}\n'.format(line['Question'])
         user_1 += 'A. {}\nB. {}\nC. {}\nD. {}\n'.format(line['A'], line['B'], line['C'], line['D'])
@@ -367,42 +342,47 @@ def prompt_fomular(line:dict, dataset, model=None, shuffle=True, rag=False, src_
 def process_file(data, output_file, args, model=None, tokenizer=None, pipeline=None, 
                 dev_file=None, subject=None):
     if args.dataset_name == 'MMLU':
-        CoT_prompt = ''
+        if args.local_check:
+            CoT_prompt = ''
+        elif args.extract_triple:
+            CoT_prompt = ''
+        else:
+            CoT_prompt = ''
+            for dev_line in dev_file:
+                dev_line = json.loads(dev_line)
+                
+                if args.rag:
+                    CoT_prompt += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question, relevant references (maybe not useful), and four candidate answers (A, B, C, and D), explain your reasoning step-by-step based on the references and then choose the best answer. If there is no reference or you find the reference irrelevant, please choose the correct option based on your knowledge\n\n'
+                    CoT_prompt += 'Reference 1:\n{}\n\n'.format(dev_line['query_pseudo_doc'])
+                    CoT_prompt += 'Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\n'.format(dev_line['Question'], dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'])
+                    CoT_prompt += 'Your response should include the reasoning "Reasoning: [reasoning_text]" based on the references, and end with "The best answer is [the_answer_letter]" where [the_answer_letter] is one of A, B, C, or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nReasoning: {}\n\nThe best answer is {}.<|eot_id|>'.format(dev_line['query_pseudo_doc'] ,dev_line['Answer'])
+                
+                elif args.generate_reference:
+                    user_prompt = 'I have a list of multiple-choice questions, and I\'d like you to write a reference paragraph for each question. These paragraphs will assist the person coming after me in understanding the context of the question and choices, enabling them to amplify and answer the questions concisely. You don\'t need to answer the questions directly, just provide enough information to guide the next person.\n'
+                    if len(dev_line['query_entity']) != 0:
+                        user_prompt += 'To make your reference passages more accurate, I\'m going to provide you with some entities inside the question that you can refer to them, but they\'re not necessarily accurate.\n'
 
-        for dev_line in dev_file:
-            dev_line = json.loads(dev_line)
-            if args.rag:
-                CoT_prompt += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question, relevant references (maybe not useful), and four candidate answers (A, B, C, and D), explain your reasoning step-by-step based on the references and then choose the best answer. If there is no reference or you find the reference irrelevant, please choose the correct option based on your knowledge\n\n'
-                CoT_prompt += 'Reference 1:\n{}\n\n'.format(dev_line['query_pseudo_doc'])
-                CoT_prompt += 'Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\n'.format(dev_line['Question'], dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'])
-                CoT_prompt += 'Your response should include the reasoning "Reasoning: [reasoning_text]" based on the references, and end with "The best answer is [the_answer_letter]" where [the_answer_letter] is one of A, B, C, or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nReasoning: {}\n\nThe best answer is {}.<|eot_id|>'.format(dev_line['query_pseudo_doc'] ,dev_line['Answer'])
-            
-            elif args.generate_reference:
-                user_prompt = 'I have a list of multiple-choice questions, and I\'d like you to write a reference paragraph for each question. These paragraphs will assist the person coming after me in understanding the context of the question and choices, enabling them to amplify and answer the questions concisely. You don\'t need to answer the questions directly, just provide enough information to guide the next person.\n'
-                if len(dev_line['query_entity']) != 0:
-                    user_prompt += 'To make your reference paragraph more accurate, I will provide you with the entities related to the question and you can refer to them.\n'
+                    user_prompt += 'Question: {}\n'.format(dev_line['Question'])
+                    user_prompt += 'A. {}\nB. {}\nC. {}\nD. {}\n'.format(dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'])
+                    if len(dev_line['query_entity']) != 0:
+                        user_prompt += '\nRelated Entities:\n'
+                        for i, ent in enumerate(dev_line['query_entity'].values()):
+                            user_prompt += '{}. {}: {}\n'.format(i + 1, ent['entity'], ent['description'])
+                    user_prompt += 'Your response should start with "Reference: [reference_paragraph]" where the [reference_paragraph] is the reference you write.\n'
 
-                user_prompt += 'Question: {}\n'.format(dev_line['Question'])
-                user_prompt += 'A. {}\nB. {}\nC. {}\nD. {}\n'.format(dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'])
-                if len(dev_line['query_entity']) != 0:
-                    user_prompt += '\nRelated Entities:\n'
-                    for i, ent in enumerate(dev_line['query_entity'].values()):
-                        user_prompt += '{}. {}: {}\n'.format(i + 1, ent['entity'], ent['description'])
-                user_prompt += 'Your response should start with "Reference: [reference_paragraph]" where the [reference_paragraph] is the reference you write.\n'
+                    question_prompt = '<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|>\n<|start_header_id|>assistant<|end_header_id|>\n\nReference: {}<|eot_id|>'.format(user_prompt, dev_line['query_pseudo_doc'])
 
-                question_prompt = '<|start_header_id|>user<|end_header_id|>\n\n{}<|eot_id|>\n<|start_header_id|>assistant<|end_header_id|>\n\n{}'.format(user_prompt, dev_line['query_pseudo_doc'])
+                    CoT_prompt += question_prompt
 
-                CoT_prompt += question_prompt
-
-            elif args.output_reason:
-                reason_str = dev_line['reason']
-                reason_str = reason_str.lstrip('Reasoning:')
-                reason_str = reason_str.strip()
-                CoT_prompt += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question and four candidate answers (A, B, C and D), explain your reasoning step-by-step and then choose the best answer.\n'
-                CoT_prompt += 'Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\nYour response should include the reasoning \"Reasoning: [reasoning_text]\" and end with \"The best answer is [the_answer_letter]\" where the [the_answer_letter] is one of A, B, C or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nReasoning: {}\n\nThe best answer is {}.<|eot_id|>'.format(dev_line['Question'], dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'], reason_str ,dev_line['Answer'])
-            else:
-                CoT_prompt += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question and four candidate answers (A, B, C and D), choose the best answer.\n'
-                CoT_prompt += 'Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\nYour response should end with \"The best answer is [the_answer_letter]\" where the [the_answer_letter] is one of A, B, C or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nThe best answer is {}.<|eot_id|>'.format(dev_line['Question'], dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'], dev_line['Answer'])
+                elif args.output_reason:
+                    reason_str = dev_line['reason']
+                    reason_str = reason_str.lstrip('Reasoning:')
+                    reason_str = reason_str.strip()
+                    CoT_prompt += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question and four candidate answers (A, B, C and D), explain your reasoning step-by-step and then choose the best answer.\n'
+                    CoT_prompt += 'Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\nYour response should include the reasoning \"Reasoning: [reasoning_text]\" and end with \"The best answer is [the_answer_letter]\" where the [the_answer_letter] is one of A, B, C or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nReasoning: {}\n\nThe best answer is {}.<|eot_id|>'.format(dev_line['Question'], dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'], reason_str ,dev_line['Answer'])
+                else:
+                    CoT_prompt += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question and four candidate answers (A, B, C and D), choose the best answer.\n'
+                    CoT_prompt += 'Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\nYour response should end with \"The best answer is [the_answer_letter]\" where the [the_answer_letter] is one of A, B, C or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nThe best answer is {}.<|eot_id|>'.format(dev_line['Question'], dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'], dev_line['Answer'])
         
     i = 0
     for line in tqdm(data):
@@ -420,9 +400,12 @@ def process_file(data, output_file, args, model=None, tokenizer=None, pipeline=N
             else:
                 prompt = prompt_fomular_reference_generate(line, add_entity=True)
         elif args.local_check:
-            prompt = prompt_fomular_kg_local_check(line)
+            if args.dataset_name == 'MMLU':
+                prompt = prompt_fomular_kg_local_check(line, have_choice=True)
+            else:
+                prompt = prompt_fomular_kg_local_check(line)
         elif args.extract_triple:
-            prompt = prompt_fomular_triple_extraction(line, provide_entity=True)
+            prompt = prompt_fomular_triple_extraction(line)
         else:
             prompt = prompt_fomular(line, args.dataset_name, model=args.model_name, rag=args.rag, 
                                     CoT_prompt=CoT_prompt, subject=subject)
@@ -501,7 +484,7 @@ def main(args):
         from mmlu_categories import subcategories, categories
         
         #load src dir
-        subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(args.dataset_path, "dev")) if "_dev.json" in f])
+        subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join('datasets', 'MMLU', 'data', "dev")) if "_dev.json" in f])
         if args.exp_name == '':
             exp_name = 'test'
         else:
@@ -528,7 +511,11 @@ def main(args):
                 input_file_name = os.path.join(args.dataset_path, "test", args.test_input, sub + "_test.json")
             else:
                 input_file_name = os.path.join(args.dataset_path, "test", sub + "_test.json")
-            dev_file = open(dev_file_name)
+            
+            if os.path.exists(dev_file_name):
+                dev_file = open(dev_file_name)
+            else:
+                dev_file = None
             input_file = open(input_file_name)
 
             output_file_name = os.path.join(save_dir, "{}_result.json".format(sub))
