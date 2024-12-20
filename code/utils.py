@@ -290,6 +290,15 @@ def summary_process(line:dict):
             exit()
     return res_json, flag
 
+def local_check_str(response:str):
+    prefix = 'The reliability of the passage is'
+    ans_index = response.find(prefix)
+    ans = response[ans_index:]
+    if 'yes' in ans:
+        return True
+    else:
+        return False
+
 def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, tgt_key_name=None, src_key_name=None):
     '''
     summary: phrase llm response to key summary\n
@@ -347,11 +356,7 @@ def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, 
                 new_p_list.append(line['pseudo_doc'])
                 line['passages'] = new_p_list
             if func == 'reliability_phrase':
-                if filter_exinfo(line['llm_response'], check_key='reliability'):
-                    line['local_check'] = True
-                else:
-                    line['local_check'] = False
-                    error_num += 1
+                line['local_check'] = local_check_str(line['llm_response'])
             if func == 'get_decompose':
                 res, json_flag = json_decode(line['llm_response'])
                 if json_flag:
@@ -438,17 +443,17 @@ if __name__ == "__main__":
 
     dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/MMLU/data'
     input_path = '/data/xkliu/LLMs/DocFixQA/reference/MMLU'
-    input_dir = 'entity'
+    input_dir = 'local_check_raw'
     output_path = '/data/xkliu/LLMs/DocFixQA/reference/MMLU'
-    output_dir = 'turn1_raw'
+    output_dir = 'local_check'
     kc_name = 'knowledge-card-wikipedia'
-    ref_src = 'entity'
+    ref_src = 'question'
 
     #load src dir
     subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(dataset_path, "dev")) if "_dev.json" in f])
 
     # mkdir save dir
-    save_dir = os.path.join(output_path, 'test', output_dir)
+    save_dir = os.path.join(output_path, 'dev', output_dir)
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
 
@@ -456,20 +461,20 @@ if __name__ == "__main__":
         # if sub != 'clinical_knowledge':
         #     continue
         print(sub)
-        # input_file_name = os.path.join(input_path, input_dir, 'test', kc_name, sub + "_kc.json")
-        input_file_list = [
-            os.path.join(input_path, 'test', 'entity', "{}_knowledge-card-wikipedia.json".format(sub)),
-            os.path.join(input_path, 'test', 'entity', "{}_knowledge-card-yago.json".format(sub)),
-            os.path.join(input_path, 'test', 'pseudo_doc', "{}_pseudo_doc.json".format(sub)),
-            os.path.join(input_path, 'test', 'question', "{}_knowledge-card-wikipedia.json".format(sub)),
-            os.path.join(input_path, 'test', 'question', "{}_knowledge-card-yago.json".format(sub)),
-            os.path.join(input_path, 'test', 'choice', "{}_knowledge-card-wikipedia.json".format(sub)),
-            os.path.join(input_path, 'test', 'choice', "{}_knowledge-card-yago.json".format(sub))
-        ]
+        input_file_name = os.path.join(input_path, 'dev', input_dir, sub + "_dev.json")
+        # input_file_list = [
+        #     os.path.join(input_path, 'dev', 'entity', "{}_knowledge-card-wikipedia.json".format(sub)),
+        #     os.path.join(input_path, 'dev', 'entity', "{}_knowledge-card-yago.json".format(sub)),
+        #     os.path.join(input_path, 'dev', 'pseudo_doc', "{}_pseudo_doc.json".format(sub)),
+        #     os.path.join(input_path, 'dev', 'question', "{}_knowledge-card-wikipedia.json".format(sub)),
+        #     os.path.join(input_path, 'dev', 'question', "{}_knowledge-card-yago.json".format(sub)),
+        #     os.path.join(input_path, 'dev', 'choice', "{}_knowledge-card-wikipedia.json".format(sub)),
+        #     os.path.join(input_path, 'dev', 'choice', "{}_knowledge-card-yago.json".format(sub))
+        # ]
 
-        output_file_name = os.path.join(save_dir, "{}_test.json".format(sub))
+        output_file_name = os.path.join(save_dir, "{}_dev.json".format(sub))
         # if not os.path.exists(input_file_name):
         #     continue
-        merge_file(input_file_list, output_file_name)
-        # process_by_line(input_file_name, output_file_name, 'reference', tgt_key_name='passages', src_key_name='llm_response')
+        # merge_file(input_file_list, output_file_name)
+        process_by_line(input_file_name, output_file_name, 'reliability_phrase', tgt_key_name='passages', src_key_name='llm_response')
         # list2pair(input_file_name, output_file_name, 'knowledge_card', line_mode=True)
