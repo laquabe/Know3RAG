@@ -2,6 +2,8 @@ import json
 import copy
 import re
 from tqdm import tqdm
+import numpy as np
+MIN_SCORE = -10000
 
 def read_data(dataset_name, file_path):
     if dataset_name in ['Truthful_QA', 'Temporal_QA']:
@@ -145,54 +147,100 @@ def filter_exinfo(prediction, firstorlast='last', check_key='useful'):
                 return True
             return False
 
-def pair_merge(input_file_name, output_file_name, func, summary_map_dict = None):
+def pair_merge(input_file_name, output_file_name, func, dataset, summary_map_dict = None, top_k=3):
     '''
     raw: just pair to list. input file is the summary file(processed)
     filter: use llm pair judge to filter external info. input file is the filter file(raw)
     '''
-    id2src = {} #no_change
-    id2info = {}    #change info
+    id2src = {} # id to question
+    id2info = {} # id to ref
 
     with open(input_file_name) as input_f, \
         open(output_file_name, 'w') as output_f:
 
-        for line in input_f:
-            line = json.loads(line.strip())
-            l_id = line['Id']
-            if l_id not in id2src.keys():
-                new_l = copy.deepcopy(line)
-                del new_l['passages']
-                if 'llm_response' in new_l.keys():
-                    del new_l['llm_response']
-                id2src[l_id] = new_l
-                id2info[l_id] = []
-            if func == 'filter':
-                # if no then ignore the exinfo
-                try:
-                    line['summary'] = summary_map_dict[line['Id']][line['passages']]
-                except:
-                    line['summary'] = line['passages']
-                if filter_exinfo(line['llm_response'], check_key='reliability'):
+        if dataset == 'Temporal_QA':
+
+            for line in input_f:
+                line = json.loads(line.strip())
+                l_id = line['Id']
+                if l_id not in id2src.keys():
+                    new_l = copy.deepcopy(line)
+                    del new_l['passages']
+                    if 'llm_response' in new_l.keys():
+                        del new_l['llm_response']
+                    id2src[l_id] = new_l
+                    id2info[l_id] = []
+                if func == 'filter':
+                    # if no then ignore the exinfo
+                    try:
+                        line['summary'] = summary_map_dict[line['Id']][line['passages']]
+                    except:
+                        line['summary'] = line['passages']
+                    if filter_exinfo(line['llm_response'], check_key='reliability'):
+                        ex_info_list = id2info[l_id]
+                        if line['summary'] not in ex_info_list:
+                            # ex_info_list.append(line['summary'])
+                            ex_info_list.append(line['passages'])
+                            if l_id == 3:
+                                print(json.dumps(line))
+                        id2info[l_id] = ex_info_list
+                    # else:
+                    #     ex_info_list = id2info[l_id]
+                    #     ex_info_list.append(line['summary'])
+                    #     id2info[l_id] = ex_info_list
+                if func == 'raw':
                     ex_info_list = id2info[l_id]
-                    if line['summary'] not in ex_info_list:
-                        # ex_info_list.append(line['summary'])
-                        ex_info_list.append(line['passages'])
-                        if l_id == 3:
-                            print(json.dumps(line))
+                    ex_info_list.append(line['summary'])
                     id2info[l_id] = ex_info_list
-                # else:
-                #     ex_info_list = id2info[l_id]
-                #     ex_info_list.append(line['summary'])
-                #     id2info[l_id] = ex_info_list
-            if func == 'raw':
-                ex_info_list = id2info[l_id]
-                ex_info_list.append(line['summary'])
-                id2info[l_id] = ex_info_list
+            
+            for k, v in id2src.items():
+                exinfo = id2info[k]
+                v['passages'] = exinfo
+                output_f.write(json.dumps(v, ensure_ascii=False) + '\n')
         
-        for k, v in id2src.items():
-            exinfo = id2info[k]
-            v['passages'] = exinfo
-            output_f.write(json.dumps(v, ensure_ascii=False) + '\n')
+        elif dataset == 'MMLU':
+            global_id = 0
+            for line in input_f:
+                # gather reference
+                line = json.loads(line.strip())
+                question = line['Question']
+                if question not in id2src.keys():
+                    id2src[question] = {'Id': global_id, 'A': line['A'], 'B': line['B'], 'C': line['C'], 'D': line['D'], 'Answer':line['Answer'], 'query_entity':line['query_entity']}
+                    global_id += 1
+                quiz_id = id2src[question]['Id']
+                ref_list = id2info.get(quiz_id, [])
+                ref_list.append({'passages':line['passages'], 'passage_entity':line['passage_entity'], 'local_check':line['local_check'], 'triple_score':line['triple_score_wor']})
+                id2info[quiz_id] = ref_list
+            
+            # filter ref
+            for question, question_info in id2src.items():
+                ref_list = id2info[question_info['Id']]
+                ref_p_valid = []
+                ref_s_valid = []
+                # score filter
+                for ref in ref_list:
+                    if ref['local_check'] == True:
+                        ref_p_valid.append(ref['passages'])
+                        if len(ref['triple_score']) == 0:
+                            ref_s_valid.append(MIN_SCORE)
+                        else:
+                            ref_score = sum(ref['triple_score']) / len(ref['triple_score'])
+                            ref_s_valid.append(ref_score)
+                
+                # write json
+                del question_info['Id']
+                del question_info['query_entity']
+                question_info['Question'] = question
+                print(len(ref_s_valid))
+                if len(ref_s_valid) == 0:
+                    question_info['reference'] = []
+                    output_f.write(json.dumps(question_info, ensure_ascii=False) + '\n')
+                else:
+                    index = np.argsort(ref_s_valid)
+                    index = index[:np.min([top_k, len(ref_s_valid)])]
+                    question_info['reference'] = [ref_p_valid[i] for i in index]
+                    output_f.write(json.dumps(question_info, ensure_ascii=False) + '\n')
+
 
 def json_decode(ans:str):
     json_pattern = r'\{.*?\}'
@@ -413,16 +461,29 @@ def read_map(input_file_name, map_func):
 
     return id2passage_dict
 
-def merge_file(input_file_list:list, output_file_name):
+def merge_file(input_file_list:list, output_file_name, type='concat'):
     '''kc for entity & question'''
     output_f = open(output_file_name, 'w')
+    if type == 'concat':
+        for input_file_name in input_file_list:
+            if not os.path.exists(input_file_name):
+                continue
+            with open(input_file_name, 'r') as input_f:
+                for line in input_f:
+                    output_f.write(line)
+    elif type == 'merge':
+        '''file_list = [local_check, score]'''
+        assert len(input_file_list) == 2
+        local_check_file_name, score_file_name = input_file_list
+        with open(local_check_file_name) as local_check_file, \
+            open(score_file_name) as score_file:
 
-    for input_file_name in input_file_list:
-        if not os.path.exists(input_file_name):
-            continue
-        with open(input_file_name, 'r') as input_f:
-            for line in input_f:
-                output_f.write(line)
+            for line_local, line_score in zip(local_check_file, score_file):
+                line_local = json.loads(line_local)
+                line_score = json.loads(line_score)
+                assert line_local['Question'] == line_score['Question']
+                line_score['local_check'] = line_local['local_check']
+                output_f.write(json.dumps(line_score, ensure_ascii=False) + '\n')
 
 if __name__ == "__main__":
     # read_data('Truthful_QA', '/data/xkliu/LLMs/DocFixQA/datasets/truthfulqa_mc_task.json')
@@ -443,9 +504,9 @@ if __name__ == "__main__":
 
     dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/MMLU/data'
     input_path = '/data/xkliu/LLMs/DocFixQA/reference/MMLU'
-    input_dir = 'local_check_raw'
-    output_path = '/data/xkliu/LLMs/DocFixQA/reference/MMLU'
-    output_dir = 'local_check'
+    input_dir = 'turn1_final'
+    output_path = '/data/xkliu/LLMs/DocFixQA/datasets/MMLU/data'
+    output_dir = 'turn1'
     kc_name = 'knowledge-card-wikipedia'
     ref_src = 'question'
 
@@ -471,10 +532,13 @@ if __name__ == "__main__":
         #     os.path.join(input_path, 'dev', 'choice', "{}_knowledge-card-wikipedia.json".format(sub)),
         #     os.path.join(input_path, 'dev', 'choice', "{}_knowledge-card-yago.json".format(sub))
         # ]
+        # input_file_list = [
+        #     os.path.join(input_path, 'dev', 'local_check', sub + '_dev.json'),
+        #     os.path.join(input_path, 'dev', 'extract_triple_score_wor', sub + '_dev.json'),]
 
         output_file_name = os.path.join(save_dir, "{}_dev.json".format(sub))
-        # if not os.path.exists(input_file_name):
-        #     continue
-        # merge_file(input_file_list, output_file_name)
-        process_by_line(input_file_name, output_file_name, 'reliability_phrase', tgt_key_name='passages', src_key_name='llm_response')
+
+        # merge_file(input_file_list, output_file_name, type='merge')
+        # process_by_line(input_file_name, output_file_name, 'triple_extract', tgt_key_name='passages', src_key_name='llm_response')
         # list2pair(input_file_name, output_file_name, 'knowledge_card', line_mode=True)
+        pair_merge(input_file_name, output_file_name, 'filter', dataset='MMLU', summary_map_dict=None)

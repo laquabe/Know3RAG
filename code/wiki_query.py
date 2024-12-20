@@ -262,14 +262,14 @@ if __name__ == '__main__':
     dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/MMLU/data'
     input_path = '/data/xkliu/LLMs/DocFixQA/reference/MMLU'
     output_path = '/data/xkliu/LLMs/DocFixQA/reference/MMLU'
-    mmlu_input = 'turn1_raw'
-    exp_name = 'turn1_el'
+    mmlu_input = 'extract_triple_phrase'
+    exp_name = 'extract_triple_id'
 
     #load src dir
     subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(dataset_path, "dev")) if "_dev.json" in f])
 
     # mkdir save dir
-    save_dir = os.path.join(output_path, 'test', exp_name)
+    save_dir = os.path.join(output_path, 'dev', exp_name)
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
 
@@ -278,8 +278,8 @@ if __name__ == '__main__':
         # if sub != 'high_school_european_history':
         #     continue
 
-        input_file_name = os.path.join(input_path, "test", mmlu_input, sub + "_test.json")
+        input_file_name = os.path.join(input_path, "dev", mmlu_input, sub + "_dev.json")
 
-        output_file_name = os.path.join(save_dir, "{}_test.json".format(sub))
+        output_file_name = os.path.join(save_dir, "{}_dev.json".format(sub))
 
-        process_by_line(input_file_name, output_file_name, func='el',src_key='passages', tgt_key='passage_entity', question_type=None)
+        process_by_line(input_file_name, output_file_name, func='entity_map',src_key='passages', tgt_key='triple_id', question_type=None)
