@@ -2,6 +2,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, AutoModel
 import transformers
 import torch
 from transformers.generation.utils import GenerationConfig  #baichuan
+from openai import OpenAI
 # device = "cuda" the device to load the model onto
 
 
@@ -49,6 +50,12 @@ def load_llm(model_name, model_path, logit=False):
     elif model_name == 'Zephyr':
         pipe = transformers.pipeline("text-generation", model=model_path, torch_dtype=torch.bfloat16, device_map="auto")
         return pipe
+    elif model_name == 'Qwen_api':
+        client = OpenAI(
+            api_key=model_path,
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        )
+        return client
     else:
         print('Error! No support models')
     print('Model load sucessfully!')
@@ -63,6 +70,14 @@ def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do
         response = response[res_pos + len('[/INST]'):]
         response = response.strip()
         return response
+    elif model_name == 'Qwen_api':
+        completion = model.chat.completions.create(
+            model="qwen2.5-72b-instruct", # 模型列表：https://help.aliyun.com/zh/model-studio/getting-started/models
+            messages=messages,
+            temperature=0,
+        )
+
+        return completion.model_dump_json()
     elif model_name == 'Llama':
         if output_logit:
             input_ids = tokenizer(messages[-1]['content'], return_tensors="pt").input_ids.to('cuda')
@@ -129,7 +144,10 @@ def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do
     elif model_name == 'Qwen':
         text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         model_inputs = tokenizer([text], return_tensors="pt").to('cuda')
-        generated_ids = model.generate(model_inputs.input_ids, max_new_tokens=max_new_tokens)
+        if do_sample:
+            generated_ids = model.generate(model_inputs.input_ids, max_new_tokens=max_new_tokens, do_sample=do_sample)
+        else:
+            generated_ids = model.generate(model_inputs.input_ids, max_new_tokens=max_new_tokens, do_sample=do_sample, temperature=None, top_p=None, top_k=None)
         generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)]
         response = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
         return response
@@ -165,15 +183,15 @@ if __name__ == "__main__":
     messages = [
         {"role": "user", "content": "Read the following question and provide only the correct option letter (e.g., A, B, C, or D) without adding any additional text.\n\n Question: Where is London?\nA. China\n B. America\n C. England \n D.France \n Answer:"},
     ]
-    model_name = 'Llama'
+    model_name = 'GLM4'
     '''Mistarl'''
     # model, tokenizer = load_llm(model_name, '')
     # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
     # print(response)
     '''Llama'''
-    model, tokenizer = load_llm(model_name, '/data/share_weight/Meta-Llama-3-8B-Instruct', logit=True)
-    response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, output_logit=True)
-    print(response)
+    # model, tokenizer = load_llm(model_name, '/data/share_weight/Meta-Llama-3-8B-Instruct', logit=True)
+    # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, output_logit=True)
+    # print(response)
     '''GLM3'''
     # model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/chatglm3-6b')
     # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
@@ -183,14 +201,15 @@ if __name__ == "__main__":
     # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer)
     # print(response)
     '''Qwen'''
-    # model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/Qwen2-7B-Instruct')
-    # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, do_sample=True)
+    # model, tokenizer = load_llm(model_name, '/data/share_weight/Qwen2.5-7B-Instruct')
+    # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, do_sample=False)
     # print(response)
     '''Yi'''
     # model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/Yi-1.5-9B-Chat')
     # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, do_sample=True)
     # print(response)
     '''GLM4'''
-    # model, tokenizer = load_llm(model_name, '/data/xkliu/LLMs/models/glm-4-9b-chat')
-    # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, do_sample=True)
+    # model, tokenizer = load_llm(model_name, '/data/share_weight/GLM/glm-4-9b-chat')
+    # response = llm_call(messages, model_name, model=model, tokenizer=tokenizer, do_sample=False)
     # print(response)
+    '''Qwen api'''

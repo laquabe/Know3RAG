@@ -166,7 +166,7 @@ def eval_line(line, dataset, model_name, answer_key, firstorlast='first'):
     if dataset == 'MMLU':
         # multi choice
         error_flag = True
-        possible_prefix = ["The best answer is ", "answer:", 'answer is:', 'answer is ']
+        possible_prefix = ["The best answer is ", "the best answer is ", "answer:", 'answer is:', 'answer is ']
         pred = line[answer_key]
         for prefix in possible_prefix:
             if prefix in pred.lower():

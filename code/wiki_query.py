@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES']='1'
+os.environ['CUDA_VISIBLE_DEVICES']='3'
 import requests
 import json
 from tqdm import tqdm
@@ -90,7 +90,7 @@ def falcon_query(doc):
     print(json.dumps(response.json(), ensure_ascii=False))
     return response.json()
 
-def entity_linking_with_spacy(sentence:str, add_description=False):
+def entity_linking_with_spacy(sentence:str, add_description=False, ner=False):
     # returns all entities in the whole document
     doc = nlp(sentence)
     # iterates over sentences and prints linked entities
@@ -112,12 +112,16 @@ def entity_linking_with_spacy(sentence:str, add_description=False):
             continue
         if len(mention) < 2:
             continue
-        if mention not in ner_list:
-            if mention not in ner_str:
-                continue
-            else:
-                if len(mention) <= 2:
+        if ner:
+            if mention not in ner_list:
+                if mention not in ner_str:
                     continue
+                else:
+                    if len(mention) <= 2:
+                        continue
+        else:
+            if len(mention) <= 2:
+                continue
 
         if add_description:
             ent_dict[mention] = {'id': 'Q{}'.format(ent.get_id()), 'entity': ent.get_label(), 
@@ -224,7 +228,7 @@ def triple_mapping(triple_text_list:list, entity_id_mapping:dict, relation_id_ma
     
     return triple_id_list
 
-def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key, question_type='open'):
+def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key, entity_key='llm_triple', triple_key='passage_entity', question_type='open', ner_flag=False):
     with open(input_file_path) as input_f, \
         open(output_file_path, 'w') as output_f:
         i = 0
@@ -234,36 +238,40 @@ def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key, q
                 ques = line[src_key]
                 if question_type == 'choice':
                     ques += '\n{}\n{}\n{}\n{}'.format(line['A'], line['B'], line['C'], line['D'])
-                ent_dict = entity_linking_with_spacy(ques, add_description=True)
+                ent_dict = entity_linking_with_spacy(ques, add_description=True, ner=ner_flag)
                 line[tgt_key] = ent_dict
                 output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
             if func == 'entity_map':
-                if len(line['llm_triple']) == 0:
+                if len(line[triple_key]) == 0:
                     line[tgt_key] = []
                     output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
                     continue
                 if el_flag:
-                    entity_map_dict = entity_mapping_for_line(line['llm_triple'], line['passage_entity'])
+                    entity_map_dict = entity_mapping_for_line(line[triple_key], line[entity_key])
                     # print(json.dumps(entity_map_dict))
                 if re_flag:
-                    relation_map_dict = relation_mapping_for_line(line['llm_triple'])
+                    relation_map_dict = relation_mapping_for_line(line[triple_key])
                     # print(json.dumps(relation_map_dict))
-                triple_id_list = triple_mapping(line['llm_triple'], entity_map_dict, relation_map_dict)
+                triple_id_list = triple_mapping(line[triple_key], entity_map_dict, relation_map_dict)
                 line[tgt_key] = triple_id_list
                 output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
+            if func == 'convert_triple':
+
 
 if __name__ == '__main__':
-    # input_file_path = '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/wiki/test.json'
-    # output_file_path = '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/wiki/test_score.json'
-    # process_by_line(input_file_path, output_file_path, func='entity_map',src_key='passages', tgt_key='triple_id_list')
+    input_file_path = '/data/xkliu/LLMs/DocFixQA/reference/hotpotQA/dev/turn0_Qwen_triple_phrase.json'
+    output_file_path = '/data/xkliu/LLMs/DocFixQA/reference/hotpotQA/dev/turn0_Qwen_triple_id.json'
+    process_by_line(input_file_path, output_file_path, func='entity_map',src_key='passages', tgt_key='llm_triple_id', ner_flag=False,
+                    entity_key='passage_entity', triple_key='llm_triple')
+    exit()
     
     '''MMLU'''
 
     dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/MMLU/data'
     input_path = '/data/xkliu/LLMs/DocFixQA/reference/MMLU'
     output_path = '/data/xkliu/LLMs/DocFixQA/reference/MMLU'
-    mmlu_input = 'extract_triple_phrase'
-    exp_name = 'extract_triple_id'
+    mmlu_input = 'triple_llama'
+    exp_name = 'triple_id_llama'
 
     #load src dir
     subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(dataset_path, "dev")) if "_dev.json" in f])
@@ -278,8 +286,9 @@ if __name__ == '__main__':
         # if sub != 'high_school_european_history':
         #     continue
 
-        input_file_name = os.path.join(input_path, "dev", mmlu_input, sub + "_dev.json")
+        input_file_name = os.path.join(input_path, 'dev', mmlu_input, sub + "_dev.json")
 
         output_file_name = os.path.join(save_dir, "{}_dev.json".format(sub))
 
-        process_by_line(input_file_name, output_file_name, func='entity_map',src_key='passages', tgt_key='triple_id', question_type=None)
+        process_by_line(input_file_name, output_file_name, func='entity_map', src_key='passages', tgt_key='llm_triple_id', 
+                        entity_key='passage_entity', triple_key='llm_triple', question_type=exp_name, ner_flag=False)

@@ -63,4 +63,7 @@ categories = {
     "humanities": ["history", "philosophy", "law"],
     "social sciences": ["politics", "culture", "economics", "geography", "psychology"],
     "other (business, health, misc.)": ["other", "business", "health"],
+    "history": ["history"],
+    "philosophy": ["philosophy"],
+    "law": ["law"]
 }

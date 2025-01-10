@@ -3,7 +3,8 @@ import copy
 import re
 from tqdm import tqdm
 import numpy as np
-MIN_SCORE = -10000
+import copy
+MAX_SCORE = 10000
 
 def read_data(dataset_name, file_path):
     if dataset_name in ['Truthful_QA', 'Temporal_QA']:
@@ -147,6 +148,25 @@ def filter_exinfo(prediction, firstorlast='last', check_key='useful'):
                 return True
             return False
 
+def score_feature(score_list:list, entity_num, entity_count=True):
+    feature_score_list = []
+    for triple in score_list:
+        # feature_score_list.append(triple['triple_score'])
+        if len(triple['ref_score']) == 0:
+            continue
+        ref_avg = np.average(triple['ref_score'])
+        score = np.abs(triple['triple_score'] - ref_avg)
+        feature_score_list.append(score)
+    
+    if entity_count:
+        if len(feature_score_list) == 0:
+            feature_score_list = [MAX_SCORE - entity_num]
+    else:
+        if len(feature_score_list) == 0:
+            return None
+        
+    return np.average(feature_score_list)
+
 def pair_merge(input_file_name, output_file_name, func, dataset, summary_map_dict = None, top_k=3):
     '''
     raw: just pair to list. input file is the summary file(processed)
@@ -198,18 +218,25 @@ def pair_merge(input_file_name, output_file_name, func, dataset, summary_map_dic
                 v['passages'] = exinfo
                 output_f.write(json.dumps(v, ensure_ascii=False) + '\n')
         
-        elif dataset == 'MMLU':
+        elif dataset in ['MMLU', 'hotpotQA']:
             global_id = 0
             for line in input_f:
                 # gather reference
                 line = json.loads(line.strip())
-                question = line['Question']
-                if question not in id2src.keys():
-                    id2src[question] = {'Id': global_id, 'A': line['A'], 'B': line['B'], 'C': line['C'], 'D': line['D'], 'Answer':line['Answer'], 'query_entity':line['query_entity']}
+                if dataset == 'MMLU':
+                    key_word = line['Question'] + str(line['A']) + str(line['B']) + str(line['C']) + str(line['D'])
+                elif dataset == 'hotpotQA':
+                    key_word = line['id']
+
+                if key_word not in id2src.keys():
+                    if dataset == 'MMLU':
+                        id2src[key_word] = {'Question':line['Question'], 'Id': global_id, 'A': line['A'], 'B': line['B'], 'C': line['C'], 'D': line['D'], 'Answer':line['Answer'], 'query_entity':line['query_entity']}
+                    elif dataset == 'hotpotQA':
+                        id2src[key_word] = {'id': line['id'], 'Id': global_id, 'question':line['question'], 'answer':line['answer'], 'query_entity':line['query_entity']}
                     global_id += 1
-                quiz_id = id2src[question]['Id']
+                quiz_id = id2src[key_word]['Id']
                 ref_list = id2info.get(quiz_id, [])
-                ref_list.append({'passages':line['passages'], 'passage_entity':line['passage_entity'], 'local_check':line['local_check'], 'triple_score':line['triple_score_wor']})
+                ref_list.append({'passages':line['passages'], 'passage_entity':line['passage_entity'], 'local_check':line['local_check'], 'triple_score':score_feature(line['llm_triple_score'], len(line['passage_entity']), entity_count=True)})
                 id2info[quiz_id] = ref_list
             
             # filter ref
@@ -219,19 +246,29 @@ def pair_merge(input_file_name, output_file_name, func, dataset, summary_map_dic
                 ref_s_valid = []
                 # score filter
                 for ref in ref_list:
-                    if ref['local_check'] == True:
+                    if func == 'filter':
+                        if ref['local_check'] == True:
+                            # if ref['triple_score'] == None:
+                            #     continue
+                            # elif ref['triple_score'] > 10:
+                            #     continue
+
+                            ref_p_valid.append(ref['passages'])
+                            # ref_p_valid.append(ref['summary'])
+                            ref_s_valid.append(ref['triple_score'])
+                    elif func == 'raw':
                         ref_p_valid.append(ref['passages'])
-                        if len(ref['triple_score']) == 0:
-                            ref_s_valid.append(MIN_SCORE)
-                        else:
-                            ref_score = sum(ref['triple_score']) / len(ref['triple_score'])
-                            ref_s_valid.append(ref_score)
+                        # ref_p_valid.append(ref['summary'])
+                        ref_s_valid.append(ref['triple_score'])
+                    else:
+                        print('func error')
+                        exit()
+
                 
                 # write json
                 del question_info['Id']
                 del question_info['query_entity']
-                question_info['Question'] = question
-                print(len(ref_s_valid))
+                # print(len(ref_s_valid))
                 if len(ref_s_valid) == 0:
                     question_info['reference'] = []
                     output_f.write(json.dumps(question_info, ensure_ascii=False) + '\n')
@@ -239,7 +276,12 @@ def pair_merge(input_file_name, output_file_name, func, dataset, summary_map_dic
                     index = np.argsort(ref_s_valid)
                     index = index[:np.min([top_k, len(ref_s_valid)])]
                     question_info['reference'] = [ref_p_valid[i] for i in index]
+                    # question_info['reference'].reverse()
                     output_f.write(json.dumps(question_info, ensure_ascii=False) + '\n')
+                    # print(ref_s_valid)
+                    # print(index)
+                    # print(question_info['reference'], len(question_info['reference']))
+                    # exit()
 
 
 def json_decode(ans:str):
@@ -258,7 +300,7 @@ def json_decode(ans:str):
     return ans, False
 
 def triple_extraction_decode(ans:str):
-    json_pattern = r'\[.*\]'
+    json_pattern = r'\[.*?\]'
     match = re.match(json_pattern, ans, re.DOTALL)  # re.DOTALL 允许 . 匹配换行符
     phrase_flag = False
 
@@ -305,6 +347,8 @@ def triple_verication(list_raw:list):
         if 'subject' not in t.keys():
             continue
         if 'object' not in t.keys():
+            continue
+        if 'predicate' not in t.keys():
             continue
         if isinstance(t['subject'], str):
             head_list = [t['subject']]
@@ -356,7 +400,10 @@ def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, 
     add_question_entity: add_question_entity\n
     reliability_phrase: local_ckeck\n
     add_key: add src to tgt key\n
-    triple_extract: phrase llm triple extraction
+    triple_extract: phrase llm triple extraction\n
+    self_ask: phrase llm self ask\n
+    result_merge: final result merge\n
+    count: count line
     '''
     with open(input_file_name) as input_f, \
         open(output_file_name, 'w') as output_f:
@@ -379,23 +426,27 @@ def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, 
                 #     line['pseudo_doc'] = line['Question']
                 #     error_num += 1
                 '''new for str'''
-                line[tgt_key_name] = line[src_key_name].lstrip('Reference:').strip()
-                if line[tgt_key_name] == line[src_key_name]:
-                    print(line[src_key_name])
+                line[tgt_key_name] = line[src_key_name].strip()
             if func == 'triple_extract':
                 res, json_flag = triple_extraction_decode(line['llm_response'])
                 if json_flag:
                     res = triple_verication(res)
                     line['llm_triple'] = res
+                
                 else:
                     line['llm_triple'] = []
                     error_num += 1
             if func == 'add_reference':
-                line['passages'] = line['query_pseudo_doc']
+                reference = line[src_key_name]
+                idx= reference.rfind('The answer is')
+                reference = reference[:idx]
+                line[tgt_key_name] = reference.strip()
+                if line[src_key_name] == line[tgt_key_name]:
+                    error_num += 1
             if func == 'add_question_entity':
                 line['question_entity'] = id2subq_dict[line['Id']]
             if func == 'add_key':
-                line[tgt_key_name] = id2subq_dict[line['Id']]
+                line[tgt_key_name] = line[src_key_name].lstrip('Summary:').strip()
             if func == 'add_pseudo_doc_simple':
                 passages = line['passages'][0][0]
                 new_p_list = []
@@ -405,6 +456,12 @@ def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, 
                 line['passages'] = new_p_list
             if func == 'reliability_phrase':
                 line['local_check'] = local_check_str(line['llm_response'])
+            if func == 'self_ask':
+                llm_ans = line[src_key_name].lower()
+                if 'yes' in llm_ans:
+                    line[tgt_key_name] = True
+                else:
+                    line[tgt_key_name] = False
             if func == 'get_decompose':
                 res, json_flag = json_decode(line['llm_response'])
                 if json_flag:
@@ -436,9 +493,22 @@ def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, 
                     new_line['sub_question'] = new_line['Question']
                     output_f.write(json.dumps(new_line, ensure_ascii=False) + '\n')
                     continue
+            if func == 'count':
+                error_num += 1
+                continue
+            if func == 'result_merge':
+                if line['local_check'] == True:
+                    line['llm_response'] = line['turn0_response']
+                else:
+                    kg_score = score_feature(line['llm_triple_score'], 0, entity_count=False)
+                    if kg_score == None or kg_score >= 1:
+                        line['llm_response'] = line['turn1_response']
+                    else:
+                        line['llm_response'] = line['turn1_response']
 
             output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
         print(error_num)
+        return error_num
 
 def read_map(input_file_name, map_func):
     '''all map use id as key'''
@@ -461,29 +531,45 @@ def read_map(input_file_name, map_func):
 
     return id2passage_dict
 
-def merge_file(input_file_list:list, output_file_name, type='concat'):
+def merge_file(input_file_list:list, output_file_name, type='concat', merge_key={}, index_key='passages', have_choice=False):
     '''kc for entity & question'''
     output_f = open(output_file_name, 'w')
+    count_num = 0
     if type == 'concat':
         for input_file_name in input_file_list:
-            if not os.path.exists(input_file_name):
-                continue
+            # if not os.path.exists(input_file_name):
+            #     continue
             with open(input_file_name, 'r') as input_f:
                 for line in input_f:
                     output_f.write(line)
     elif type == 'merge':
-        '''file_list = [local_check, score]'''
+        '''file_list = [src_file, merge_file]'''
         assert len(input_file_list) == 2
-        local_check_file_name, score_file_name = input_file_list
-        with open(local_check_file_name) as local_check_file, \
-            open(score_file_name) as score_file:
+        file1_name, file2_name = input_file_list
+        with open(file1_name) as file1, \
+            open(file2_name) as file2:
+            src_dict = {}
+            for line in file1:
+                line = json.loads(line.strip())
+                if have_choice and (index_key == 'Question'):
+                    key_word = line[index_key] + line['A'] + line['B'] + line['C'] + line['D']
+                else:
+                    key_word = line[index_key]
+                src_dict[key_word] = line
+            
+            for line in file2:
+                line = json.loads(line.strip())
+                if have_choice and (index_key == 'Question'):
+                    key_word = line[index_key] + line['A'] + line['B'] + line['C'] + line['D']
+                else:
+                    key_word = line[index_key]
+                src_line = src_dict.get(key_word, None)
+                if src_line == None:
+                    continue
+                for k,v in merge_key.items():
+                    line[v] = src_line[k]
+                output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
 
-            for line_local, line_score in zip(local_check_file, score_file):
-                line_local = json.loads(line_local)
-                line_score = json.loads(line_score)
-                assert line_local['Question'] == line_score['Question']
-                line_score['local_check'] = line_local['local_check']
-                output_f.write(json.dumps(line_score, ensure_ascii=False) + '\n')
 
 if __name__ == "__main__":
     # read_data('Truthful_QA', '/data/xkliu/LLMs/DocFixQA/datasets/truthfulqa_mc_task.json')
@@ -500,26 +586,50 @@ if __name__ == "__main__":
     #                 'triple_extract', id2subq_dict=None)
     # res, _ = triple_extraction_decode("I'll extract the relationships between the provided entities from the given text.\n\nAfter analyzing the text and the provided entities, I found the following relationships:\n\n[{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"got completed\", \"object\": \"None\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"must be created\", \"object\": \"murtis\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"made\", \"object\": \"murtis\"}, \n{\"subject\": \"shanthamadurai\", \"predicate\": \"is brought out\", \"object\": \"moon light\"}, \n{\"subject\": \"moon light\", \"predicate\": \"is brought\", \"object\": \"house\"}]\n\nNote that the entity \"reference\" is not related to any other entity in the text, so it's not included in the output. Also, the entity \"question\" is not directly related to any other entity, but it's mentioned in the context of \"lakshmi kalyanam\", so I didn't include it as a separate entity.\n\nThe entity \"purpose\" is related to the creation of murtis, but it's not a direct relationship, so I didn't include it as a separate triple. Similarly, the entity \"reason\" is mentioned as the same reason as they made murtis for kalyanam, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"ceremony\" is mentioned in the context of creating murtis, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"kalyanam\" is mentioned multiple times, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"light\" is mentioned as \"moon light\", but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"place\" is mentioned as the place where shanthamadurai was staying, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"house\" is mentioned as the place where the moon light is brought, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"moon\" is mentioned as the source of the moon light, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nSo, the final output is:\n\n[{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"got completed\", \"object\": \"None\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"must be created\", \"object\": \"murtis\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"made\", \"object\": \"murtis\"}, \n{\"subject\": \"shanthamadurai\", \"predicate\": \"is brought out\", \"object\": \"moon light\"}, \n{\"subject\": \"moon light\", \"predicate\": \"is brought\", \"object\": \"house\"}]I'll extract the relationships between the provided entities from the given text.\n\nAfter analyzing the text and the provided entities, I found the following relationships:\n\n[{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"got completed\", \"object\": \"None\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"must be created\", \"object\": \"murtis\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"made\", \"object\": \"murtis\"}, \n{\"subject\": \"shanthamadurai\", \"predicate\": \"is brought out\", \"object\": \"moon light\"}, \n{\"subject\": \"moon light\", \"predicate\": \"is brought\", \"object\": \"house\"}]\n\nNote that the entity \"reference\" is not related to any other entity in the text, so it's not included in the output. Also, the entity \"question\" is not directly related to any other entity, but it's mentioned in the context of \"lakshmi kalyanam\", so I didn't include it as a separate entity.\n\nThe entity \"purpose\" is related to the creation of murtis, but it's not a direct relationship, so I didn't include it as a separate triple. Similarly, the entity \"reason\" is mentioned as the same reason as they made murtis for kalyanam, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"ceremony\" is mentioned in the context of creating murtis, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"kalyanam\" is mentioned multiple times, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"light\" is mentioned as \"moon light\", but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"place\" is mentioned as the place where shanthamadurai was staying, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"house\" is mentioned as the place where the moon light is brought, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"moon\" is mentioned as the source of the moon light, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nSo, the final output is:\n\n[{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"got completed\", \"object\": \"None\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"must be created\", \"object\": \"murtis\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"made\", \"object\": \"murtis\"}, \n{\"subject\": \"shanthamadurai\", \"predicate\": \"is brought out\", \"object\": \"moon light\"}, \n{\"subject\": \"moon light\", \"predicate\": \"is brought\", \"object\": \"house\"}]")
     # print(res)
+
     import os
 
-    dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/MMLU/data'
-    input_path = '/data/xkliu/LLMs/DocFixQA/reference/MMLU'
-    input_dir = 'turn1_final'
-    output_path = '/data/xkliu/LLMs/DocFixQA/datasets/MMLU/data'
-    output_dir = 'turn1'
-    kc_name = 'knowledge-card-wikipedia'
-    ref_src = 'question'
+    dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/hotpotQA'
+    input_path = '/data/xkliu/LLMs/DocFixQA/reference/hotpotQA/dev'
+    input_dir = 'reference_feature'
+    output_path = '/data/xkliu/LLMs/DocFixQA/reference/hotpotQA/dev'
+    output_dir = 'turn0_pseudoDoc_filter_rag'
+    kc_name = 'knowledge-card-yago'
+    ref_src = 'local_check'
 
+    '''hotpotQA'''
+    input_file_list = [os.path.join(input_path, f) for f in os.listdir(os.path.join(input_path))]
+    input_file_list = [os.path.join(input_path, 'pseudo_doc_Qwen_{}.json'.format(ref_src)),
+                    os.path.join(input_path, 'turn0_Qwen_{}.json'.format(ref_src)),
+                    
+                    ]
+
+    # input_file_list = [os.path.join(input_path, 'reference_local_check.json'),
+    #                  os.path.join(input_path, 'reference_triple_score.json'),]
+    
+    # input_file_list = ['/data/xkliu/LLMs/DocFixQA/datasets/hotpotQA/question_el.json',
+    #                    '/data/xkliu/LLMs/DocFixQA/reference/hotpotQA/dev/turn0_Qwen_el.json']
+    
+    input_file_name = os.path.join(input_path, '{}.json'.format(input_dir))
+    output_file_name = os.path.join(output_path, '{}.json'.format(output_dir))
+    
+    # list2pair(input_file_name, output_file_name, 'knowledge_card', line_mode=True)
+    # merge_file(input_file_list, output_file_name, type='merge', merge_key={'local_check': 'local_check'}, index_key='passages')
+    # process_by_line(input_file_name, output_file_name, 'triple_extract', tgt_key_name='llm_triple', src_key_name='llm_response')
+    pair_merge(input_file_name, output_file_name, 'filter', dataset='hotpotQA', summary_map_dict=None)
+    exit()
+
+    '''MMLU'''
     #load src dir
     subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(dataset_path, "dev")) if "_dev.json" in f])
 
     # mkdir save dir
-    save_dir = os.path.join(output_path, 'dev', output_dir)
+    save_dir = os.path.join(output_path, output_dir)
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
-
+    all_num = 0
     for sub in subjects:
-        # if sub != 'clinical_knowledge':
+        # if sub != 'moral_scenarios':
         #     continue
         print(sub)
         input_file_name = os.path.join(input_path, 'dev', input_dir, sub + "_dev.json")
@@ -532,13 +642,13 @@ if __name__ == "__main__":
         #     os.path.join(input_path, 'dev', 'choice', "{}_knowledge-card-wikipedia.json".format(sub)),
         #     os.path.join(input_path, 'dev', 'choice', "{}_knowledge-card-yago.json".format(sub))
         # ]
-        # input_file_list = [
-        #     os.path.join(input_path, 'dev', 'local_check', sub + '_dev.json'),
-        #     os.path.join(input_path, 'dev', 'extract_triple_score_wor', sub + '_dev.json'),]
+        input_file_list = [os.path.join(input_path,  'question_el_{}_kc.json'.format(i)) for i in range(4)]
 
-        output_file_name = os.path.join(save_dir, "{}_dev.json".format(sub))
+        output_file_name = os.path.join(save_dir, "{}.json".format(sub))
 
-        # merge_file(input_file_list, output_file_name, type='merge')
-        # process_by_line(input_file_name, output_file_name, 'triple_extract', tgt_key_name='passages', src_key_name='llm_response')
+        merge_file(input_file_list, output_file_name, type='concat', merge_key={'llm_response': 'turn1_response', 'reference':'reference'}, index_key='Question')
+        # all_num += process_by_line(input_file_name, output_file_name, 'triple_extract', tgt_key_name='llm_triple', src_key_name='llm_response')
         # list2pair(input_file_name, output_file_name, 'knowledge_card', line_mode=True)
-        pair_merge(input_file_name, output_file_name, 'filter', dataset='MMLU', summary_map_dict=None)
+        # pair_merge(input_file_name, output_file_name, 'filter', dataset='MMLU', summary_map_dict=None)
+    
+    print(all_num)
