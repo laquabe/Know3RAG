@@ -61,6 +61,7 @@ def list2pair(input_file_name, output_file_name, func, line_mode=True):
                     # s += '.'
                     # if len(s) == 0:
                     #     continue
+                    s = s.strip().lstrip('Answer:').strip()
                     new_line['passages'] = s
                     output_f.write(json.dumps(new_line, ensure_ascii=False) + '\n')
             if func == 'subques_only':
@@ -344,6 +345,8 @@ def triple_verication(list_raw:list):
     
     for t in list_raw:
         head_list, tail_list = [], []
+        if isinstance(t, str):
+            continue
         if 'subject' not in t.keys():
             continue
         if 'object' not in t.keys():
@@ -590,33 +593,48 @@ if __name__ == "__main__":
     import os
 
     dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/hotpotQA'
-    input_path = '/data/xkliu/LLMs/DocFixQA/reference/hotpotQA/dev'
-    input_dir = 'reference_feature'
-    output_path = '/data/xkliu/LLMs/DocFixQA/reference/hotpotQA/dev'
-    output_dir = 'turn0_pseudoDoc_filter_rag'
-    kc_name = 'knowledge-card-yago'
-    ref_src = 'local_check'
+    input_path = '/data/xkliu/LLMs/DocFixQA/datasets'
+    input_dir = 'turn1_GLM4'
+    output_path = '/data/xkliu/LLMs/DocFixQA/result/hotpotQA/GLM4/'
+    output_dir = 'turn1_result_reference'
+    kc_name = 'knowledge-card-wikipedia'
+    ref_src = 'triple_score'
 
     '''hotpotQA'''
     input_file_list = [os.path.join(input_path, f) for f in os.listdir(os.path.join(input_path))]
-    input_file_list = [os.path.join(input_path, 'pseudo_doc_Qwen_{}.json'.format(ref_src)),
-                    os.path.join(input_path, 'turn0_Qwen_{}.json'.format(ref_src)),
-                    
-                    ]
+    kc_inner_file_list = [os.path.join(input_path, 'knowledge-card-wikidata_question_{}.json'.format(ref_src)),
+                          os.path.join(input_path, 'knowledge-card-wikipedia_question_{}.json'.format(ref_src)),
+                          os.path.join(input_path, 'knowledge-card-yago_question_{}.json'.format(ref_src)),]
+    kc_extra_file_list = [os.path.join(input_path, 'knowledge-card-wikidata_entity_{}.json'.format(ref_src)),
+                          os.path.join(input_path, 'knowledge-card-wikipedia_entity_{}.json'.format(ref_src)),
+                          os.path.join(input_path, 'knowledge-card-yago_entity_{}.json'.format(ref_src)),]
+    llm_inner_file_list = [os.path.join(input_path, 'turn0_GLM4_{}.json'.format(ref_src)),
+                           os.path.join(input_path, 'turn0_Llama_{}.json'.format(ref_src)),
+                           os.path.join(input_path, 'turn0_Qwen_{}.json'.format(ref_src)),]
+    llm_extra_file_list = [os.path.join(input_path, 'pseudo_entity_GLM4_{}.json'.format(ref_src)),
+                           os.path.join(input_path, 'pseudo_entity_Llama_{}.json'.format(ref_src)),
+                           os.path.join(input_path, 'pseudo_entity_Qwen_{}.json'.format(ref_src)),]
 
-    # input_file_list = [os.path.join(input_path, 'reference_local_check.json'),
-    #                  os.path.join(input_path, 'reference_triple_score.json'),]
+
+    input_file_list = []
+    # input_file_list.extend(kc_inner_file_list)
+    # input_file_list.extend(kc_extra_file_list)
+    input_file_list.extend(llm_inner_file_list)
+    input_file_list.extend(llm_extra_file_list)
+
+    input_file_list = [os.path.join(input_path, 'reference_local_check.json'),
+                     os.path.join(input_path, 'reference_triple_score.json'),]
     
-    # input_file_list = ['/data/xkliu/LLMs/DocFixQA/datasets/hotpotQA/question_el.json',
-    #                    '/data/xkliu/LLMs/DocFixQA/reference/hotpotQA/dev/turn0_Qwen_el.json']
+    input_file_list = ['/data/xkliu/LLMs/DocFixQA/reference/hotpotQA/dev/turn0_GLM4_local_check.json',
+                       '/data/xkliu/LLMs/DocFixQA/datasets/hotpotQA/turn1_GLM4_result.json',]
     
     input_file_name = os.path.join(input_path, '{}.json'.format(input_dir))
     output_file_name = os.path.join(output_path, '{}.json'.format(output_dir))
     
     # list2pair(input_file_name, output_file_name, 'knowledge_card', line_mode=True)
-    # merge_file(input_file_list, output_file_name, type='merge', merge_key={'local_check': 'local_check'}, index_key='passages')
-    # process_by_line(input_file_name, output_file_name, 'triple_extract', tgt_key_name='llm_triple', src_key_name='llm_response')
-    pair_merge(input_file_name, output_file_name, 'filter', dataset='hotpotQA', summary_map_dict=None)
+    merge_file(input_file_list, output_file_name, type='merge', merge_key={'query_entity': 'query_entity'}, index_key='id')
+    # process_by_line(input_file_name, output_file_name, 'add_reference', tgt_key_name='passages', src_key_name='llm_response')
+    # pair_merge(input_file_name, output_file_name, 'raw', dataset='hotpotQA', top_k=6)
     exit()
 
     '''MMLU'''

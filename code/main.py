@@ -371,6 +371,23 @@ def format_subject(subject):
         s += " " + entry
     return s
 
+def prompt_generate_question(line:dict):
+    user_1 = 'You will be given references, a question, and an answer. The answer may be incomplete or incorrect. Identify the most critical missing or incorrect information in the references and the answer. Formulate one most important new question that will most effectively help retrieve the necessary information to answer the original question.\n'
+
+    if len(line['reference']) > 0:
+        for ref_id, ref in enumerate(line['reference']):
+            user_1 += "Reference {}: {}\n".format(ref_id + 1, ref)
+    else:
+        user_1 += 'Reference: No reference available.\n'
+    user_1 += 'Question: {}\n'.format(line['question'])
+    user_1 += 'Answer: {}\n'.format(line['llm_response'])
+    user_1 += 'Please directly output the new question:'
+
+    content = [{"role":"user", "content": user_1}]
+
+    return content
+
+
 def prompt_fomular(line:dict, dataset, model=None, shuffle=True, rag=False, src_key='passages',
                    subject=None, CoT_prompt=None, logits=False, output_reason=True, add_ref=True):
     if dataset == 'Truthful_QA':
@@ -397,7 +414,7 @@ def prompt_fomular(line:dict, dataset, model=None, shuffle=True, rag=False, src_
             else:
                 user_prompt += 'Reference: No reference available.\n'
             user_prompt += '\nQuestion: {}\n'.format(line['question'])
-            user_prompt += '\nYour response should end with "The answer is [your_answer_text]", where the [your_answer_text] should be "yes," "no," or a few words directly answering the question.\n Let\'s think step by step.'
+            user_prompt += '\nYour response should end with "The answer is [your_answer_text]", where the [your_answer_text] should be yes, no, or a few words directly answering the question.\n Let\'s think step by step.'
             content = [{"role":"user", "content": user_prompt}]
 
         elif output_reason:
@@ -537,11 +554,25 @@ def process_file(data, output_file, args, model=None, tokenizer=None, pipeline=N
                     else:
                         user_prompt += 'Reference: No reference available.\n'
                     user_prompt += '\nQuestion: {}\n'.format(dev_line['question'])
-                    user_prompt += '\nYour response should end with "The answer is [your_answer_text]", where the [your_answer_text] should be "yes," "no," or a few words directly answering the question.\n Let\'s think step by step.'
+                    user_prompt += '\nYour response should end with "The answer is [your_answer_text]", where the [your_answer_text] should be yes, no, or a few words directly answering the question.\n Let\'s think step by step.'
                     assist_prompt = '{}\n\nThe answer is {}.'.format(dev_line['reason'], dev_line['answer'])
                     CoT_prompt.extend([{"role":"user", "content": user_prompt},
                                         {"role":"assistant", "content": assist_prompt}])
-                    
+                elif args.generate_question:
+                    user_prompt = 'You will be given references, a question, and an answer. The answer may be incomplete or incorrect. Identify the most critical missing or incorrect information in the references and the answer. Formulate one most important new question that will most effectively help retrieve the necessary information to answer the original question.\n'
+                    if len(dev_line['reference']) > 0:
+                        for ref_id, ref in enumerate(dev_line['reference']):
+                            user_prompt += "Reference {}: {}\n".format(ref_id + 1, ref)
+                    else:
+                        user_prompt += 'Reference: No reference available.\n'
+                    user_prompt += 'Question: {}\n'.format(dev_line['question'])
+                    user_prompt += 'Answer: {}\n\nThe answer is {}.\n'.format(dev_line['reason'], dev_line['answer'])
+                    user_prompt += 'Please directly output the new question:'
+                    assist_prompt = dev_line['new_question']
+
+                    CoT_prompt.extend([{"role":"user", "content": user_prompt},
+                                        {"role":"assistant", "content": assist_prompt}])
+
                 elif args.generate_reference:
                     user_prompt = 'I have a list of open-ended questions, and I\'d like you to write a reference paragraph for each question. These paragraphs should provide sufficient background, key concepts, or context to guide the next person in answering the question effectively. You do not need to provide an answer directly, just enough information to help the next person frame their answer concisely and accurately.\n'
                     if len(dev_line['query_entity']) != 0:
@@ -615,6 +646,8 @@ def process_file(data, output_file, args, model=None, tokenizer=None, pipeline=N
                 prompt = prompt_fomular_kg_local_check(line, check_key=args.src_key)
         elif args.extract_triple:
             prompt = prompt_fomular_triple_extraction(line, src_key=args.src_key, ent_key=args.entity_key)
+        elif args.generate_question:
+            prompt = prompt_generate_question(line)
         else:
             prompt = prompt_fomular(line, args.dataset_name, model=args.model_name, rag=args.rag, 
                                     CoT_prompt=CoT_prompt, output_reason=args.output_reason, add_ref=args.rag)
@@ -794,6 +827,7 @@ if __name__ == '__main__':
     parser.add_argument('--judge', action='store_true', help="Judge the different answer")
     parser.add_argument('--decompose', action='store_true', help="Decompose the Question into Subqustion")
     parser.add_argument('--generate_reference', action='store_true', help="Generate Reference by LLM")
+    parser.add_argument('--generate_question', action='store_true', help="Generate Question by LLM")
     parser.add_argument('--local_check', action='store_true', help="Chech the reliability of generate passages with local entity")
     parser.add_argument('--extract_triple', action='store_true', help="Extract triples in Text")
     parser.add_argument('--logits', action='store_true', help="For mult-choice QA, use logits to choose answer")

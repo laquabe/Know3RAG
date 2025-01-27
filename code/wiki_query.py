@@ -1,8 +1,17 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES']='3'
+os.environ['CUDA_VISIBLE_DEVICES']='0'
 import requests
 import json
 from tqdm import tqdm
+from collections import Counter
+import copy
+
+def most_frequent_elements_sorted(lst):
+    # 统计元素出现次数
+    counts = Counter(lst)
+    # 对元素按照出现次数从大到小排序
+    sorted_elements = sorted(counts.items(), key=lambda x: (-x[1], lst.index(x[0])))
+    return [element for element, count in sorted_elements]
 
 mapping_flag = True
 el_flag = mapping_flag
@@ -49,12 +58,31 @@ def read_KG_relation(relation_file_name):
 if re_flag:
     r_dict, r_name_dict, tmp2wiki, r_des_embedding = read_KG_relation('datasets/relation.json')
 
-def ner_with_spaCy(sentence:str):
-    '''
-    input: sentence[str]
-    output: List of entity(unlinked) [List]
-    '''
+def read_relation_template(template_file_name):
+    template_info = []
+    template_dict = {}
+    with open(template_file_name) as template_file:
+        for line in template_file:
+            line = json.loads(line)
+            template_info.append(line)
+            r_list = template_dict.get(line['wiki_id'], [])
+            r_list.append(line)
+            template_dict[line['wiki_id']] = r_list
 
+    return template_info, template_dict
+
+if re_flag:
+    template_info, template_dict = read_relation_template('datasets/relation_template.json')
+    template_sentence_info, template_sentence_dict = read_relation_template('datasets/relation_sentence_template.json')
+
+def read_map_dict(file_name):
+    info_dict = {}
+    with open(file_name) as file:
+        for line in file:
+            line = json.loads(line)
+            info_dict[line['wiki_id']] = line
+    
+    return info_dict
 
 def query_entity(entity_id):
     url = f"https://www.wikidata.org/wiki/Special:EntityData/{entity_id}.json"
@@ -122,7 +150,7 @@ def entity_linking_with_spacy(sentence:str, add_description=False, ner=False):
         else:
             if len(mention) <= 2:
                 continue
-
+        
         if add_description:
             ent_dict[mention] = {'id': 'Q{}'.format(ent.get_id()), 'entity': ent.get_label(), 
                                          'start':ent.get_span().start, 'end':ent.get_span().end,
@@ -153,7 +181,7 @@ def entity_mapping_for_line(triple_list:list, entity_dict:dict):
 
     # use el link the miss entity
     for e in unlink_entity_list:
-        el_dict = entity_linking_with_spacy(e)
+        el_dict = entity_linking_with_spacy(e, ner=True)
         el_id_list = []
         el_entity_list = []
         for v in el_dict.values():
@@ -172,27 +200,48 @@ def entity_mapping_for_line(triple_list:list, entity_dict:dict):
     return entity_dict
 
 def relation_mapping_for_line(triple_list:list):
-    # get all relation
-    local_relation_set = set()
+    triple_relation_map_dict = {}
     for t in triple_list:
-        local_relation_set.add(t['predicate'])
-    local_relation_list = list(local_relation_set)
-
-    # sentence sim
-    local_relation_embedding = sent_model.encode(local_relation_list)
-    sim_matrix = util.pytorch_cos_sim(local_relation_embedding, r_des_embedding)
-    sim_matrix = torch.argmax(sim_matrix, dim=1)
-    sim_matrix = sim_matrix.tolist()
-
-    # mapping: 1. hit name. 2. top sim 
-    local_relation_map_dict = {}
-    for local_relation, sim_id in zip(local_relation_list, sim_matrix):
-        if local_relation in r_name_dict.keys():
-            local_relation_map_dict[local_relation] = r_name_dict[local_relation]
+        triple_str = t['subject'] + ' ' + t['predicate'] + ' ' + t['object'] + '.'
+        if t['predicate'] in r_name_dict.keys():
+            triple_relation_map_dict[triple_str] = r_name_dict[t['predicate']]
         else:
-            local_relation_map_dict[local_relation] = tmp2wiki[sim_id]
+            triple_str_embed = sent_model.encode(triple_str)
+            relation_embed = sent_model.encode([r['sentence_template'].format_map({'subject': t['subject'], 'object':t['object']}) for r in template_sentence_info])
+            sim_matrix = util.pytorch_cos_sim(triple_str_embed, relation_embed)
+            sim_matrix = torch.argmax(sim_matrix, dim=-1).item()
+            triple_relation_map_dict[triple_str] = template_sentence_info[sim_matrix]['wiki_id']
 
-    return local_relation_map_dict
+    return triple_relation_map_dict
+
+def convert_question_to_triple(question:str, entity:str, entity_info, topk=10, count_num=3):
+    entity_question_list = [temp['template'].format(entity) for temp in template_info]
+    entity_question_embedding = sent_model.encode(entity_question_list)
+    question_embedding = sent_model.encode(question)
+    sim_matrix = util.pytorch_cos_sim(question_embedding, entity_question_embedding)
+    top_similarities, top_indices = torch.topk(sim_matrix, k=topk)
+    top_indices = top_indices.tolist()[0]
+    top_relation = []
+    for idx in top_indices:
+        top_relation.append(template_info[idx]['wiki_id'])
+    
+    local_question_index = []
+    local_question_mapping = []
+    for local_r in entity_info['claims'].keys():
+        local_r_list = template_dict.get(local_r, [])
+        if len(local_r_list) > 0:
+            local_question_index.extend([temp['template_id'] for temp in local_r_list])
+            local_question_mapping.extend([local_r] * len(local_r_list))
+    
+    if len(local_question_index) > 0:
+        local_sim_matrix = sim_matrix[:,local_question_index]
+        max_idx = torch.argmax(local_sim_matrix).item()
+        local_pred_r = local_question_mapping[max_idx]
+    else:
+        local_pred_r = ''
+
+    return most_frequent_elements_sorted(top_relation)[:count_num], local_pred_r
+
 
 def triple_mapping(triple_text_list:list, entity_id_mapping:dict, relation_id_mapping:dict):
     triple_id_list = []
@@ -215,7 +264,7 @@ def triple_mapping(triple_text_list:list, entity_id_mapping:dict, relation_id_ma
         if isinstance(o, str):
             o = [o]
 
-        p = relation_id_mapping.get(t['predicate'])
+        p = relation_id_mapping.get(t['subject'] + ' ' + t['predicate'] + ' ' + t['object'] + '.')
         if p == None:
             continue
 
@@ -228,7 +277,21 @@ def triple_mapping(triple_text_list:list, entity_id_mapping:dict, relation_id_ma
     
     return triple_id_list
 
-def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key, entity_key='llm_triple', triple_key='passage_entity', question_type='open', ner_flag=False):
+def update_head_entity(ent_info:dict, tail_dict:dict):
+    des = ent_info['description'] + '.'
+    valid_tail_set = set()
+    for h_id, r_id, t_id in ent_info['kg_triple_id']:
+        temp = template_sentence_dict[r_id][0]['sentence_template']
+        tail_info = tail_dict[t_id]
+        if len(tail_info['labels']) > 0:
+            des += ' '
+            des += temp.format_map({'subject':ent_info['entity'], 'object':tail_info['labels']})
+            valid_tail_set.add(t_id)
+
+    return des.rstrip('.'), valid_tail_set
+
+def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key, entity_key='llm_triple', triple_key='passage_entity', 
+                    question_type='open', ner_flag=False, tail_map_dict=None):
     with open(input_file_path) as input_f, \
         open(output_file_path, 'w') as output_f:
         i = 0
@@ -256,13 +319,49 @@ def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key, e
                 line[tgt_key] = triple_id_list
                 output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
             if func == 'convert_triple':
-
+                question = line['question']
+                for ent in line['query_entity'].keys():
+                    relation_list, local_pred_r = convert_question_to_triple(question, ent, line['query_entity'][ent])
+                    ent_dict = line['query_entity'][ent]
+                    ent_dict['pred_relation_rank'] = relation_list
+                    ent_dict['local_pred_r'] = local_pred_r
+                output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
+            if func == 'expand_entity':
+                # add triple in head entity
+                tail_set = set()
+                head_set = set([e['id'] for e in line['query_entity'].values()])
+                for ent in line['query_entity'].keys():
+                    ent_dict = line['query_entity'][ent]
+                    new_des, tail_set_tmp = update_head_entity(ent_dict, tail_map_dict)
+                    ent_dict['description'] = new_des
+                    tail_set.update(tail_set_tmp)
+                    del ent_dict['kg_triple_id']
+                # add tail in el
+                for t_id in tail_set:
+                    if t_id in head_set:
+                        continue
+                    t_info = copy.deepcopy(tail_dict[t_id])
+                    t_info["id"] = t_info.pop("wiki_id")
+                    t_info["description"] = t_info.pop("descriptions")
+                    t_info["entity"] = t_info.pop("labels")
+                    del t_info["claims"]
+                    del t_info["aliases"]
+                    line['query_entity'][t_info["entity"]] = t_info
+                
+                output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
 
 if __name__ == '__main__':
-    input_file_path = '/data/xkliu/LLMs/DocFixQA/reference/hotpotQA/dev/turn0_Qwen_triple_phrase.json'
-    output_file_path = '/data/xkliu/LLMs/DocFixQA/reference/hotpotQA/dev/turn0_Qwen_triple_id.json'
-    process_by_line(input_file_path, output_file_path, func='entity_map',src_key='passages', tgt_key='llm_triple_id', ner_flag=False,
-                    entity_key='passage_entity', triple_key='llm_triple')
+    # relation map need change
+    func_name = 'el'
+    input_file_path = '/data/xkliu/LLMs/DocFixQA/datasets/hotpotQA/turn1_GLM4_result.json'
+    output_file_path = '/data/xkliu/LLMs/DocFixQA/datasets/hotpotQA/turn1_GLM4_el.json'
+    map_file_path = '/data/xkliu/LLMs/DocFixQA/datasets/hotpotQA/tail_map_full.json'
+    if func_name == 'expand_entity':
+        tail_dict = read_map_dict(map_file_path)
+    else:
+        tail_dict = None
+    process_by_line(input_file_path, output_file_path, func=func_name, src_key='passages', tgt_key='passage_entity', ner_flag=False,
+                    entity_key='passage_entity', triple_key='llm_triple', tail_map_dict=tail_dict)
     exit()
     
     '''MMLU'''

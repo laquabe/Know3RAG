@@ -5,9 +5,9 @@ from utils import read_data
 
 max_new_tokens = 128    # default 100
 task = 'entity'
-card_name = 'knowledge-card-yago'   # knowledge-card-1btokens, knowledge-card-atomic, knowledge-card-reddit, knowledge-card-wikidata, knowledge-card-wikipedia, knowledge-card-yago
+card_name = 'knowledge-card-wikidata'   # knowledge-card-1btokens, knowledge-card-atomic, knowledge-card-reddit, knowledge-card-wikidata, knowledge-card-wikipedia, knowledge-card-yago
 card_path = '/data/xkliu/LLMs/Knowledge_Card-main/cards/{}'.format(card_name)
-card_device = 5
+card_device = 4
 k = 1
 
 card = transformers.pipeline('text-generation', model=card_path, device = card_device, num_return_sequences=k, do_sample=True, max_new_tokens = max_new_tokens)
@@ -15,7 +15,7 @@ card = transformers.pipeline('text-generation', model=card_path, device = card_d
 def process_line(data, output_f):
     for line in tqdm(data):
         line = json.loads(line.strip())
-        if task == 'entity':
+        if task == 'entity_old':
             for ent in line['query_entity'].values():
                 prompt = '{}, {}'.format(ent['entity'], ent['description'])
                 knowl = card(prompt)
@@ -23,12 +23,16 @@ def process_line(data, output_f):
                 line['generate'] = knowl
                 output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
             continue
-        
-        if task == 'pseduo':
+        elif task == 'entity':
+            prompt = 'Knowledge:'
+            for ent in line['query_entity'].values():
+                prompt += ' {}, {}.'.format(ent['entity'], ent['description'])
+            prompt += '\nQuestion: {}'.format(line['question'])
+        elif task == 'pseduo':
             prompt = line['pseudo_doc']
-        if task == 'summary':
+        elif task == 'summary':
             prompt = line['summary']
-        if task == 'choice':
+        elif task == 'choice':
             choice_list = ['A', 'B', 'C', 'D']
             for choice in choice_list:
                 choice_str = str(line[choice])
@@ -43,9 +47,11 @@ def process_line(data, output_f):
 
             continue
         else:
-            prompt = line['question']
+            prompt = 'Question: {}'.format(line['question'])
+        
+
         knowl = card(prompt)
-        knowl = [obj["generated_text"][len(prompt)+1:] for obj in knowl]
+        knowl = [obj["generated_text"][len(prompt):] for obj in knowl]
         line['generate'] = knowl
         output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
 
@@ -55,7 +61,7 @@ if __name__ == '__main__':
 
     # for split_num in range(4):
     dataset_path = 'datasets/hotpotQA'
-    input_dir = 'example_generate_reference'
+    input_dir = 'example_kg'
 
     save_dir = os.path.join('knowledge_card_result', 'hotpotQA', task, "example", card_name)
     if not os.path.exists(save_dir):
