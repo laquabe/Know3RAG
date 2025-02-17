@@ -677,7 +677,7 @@ def process_file(data, output_file, args, model=None, tokenizer=None, pipeline=N
             print('-'*50 + 'RESPONSE' + '-'*50)
             print(response)
             i += 1
-            if i >= 3:
+            if i >= 5:
                 break
 
 def main(args):
@@ -784,7 +784,7 @@ def main(args):
             if args.test:
                 break
         
-    if args.dataset_name == 'hotpotQA':
+    if args.dataset_name in ['hotpotQA', '2wikimultihopQA']:
         import os
         
         if args.split_num == -1:

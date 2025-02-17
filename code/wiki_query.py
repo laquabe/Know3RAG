@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES']='0'
+os.environ['CUDA_VISIBLE_DEVICES']='2'
 import requests
 import json
 from tqdm import tqdm
@@ -351,16 +351,15 @@ def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key, e
                 output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
 
 if __name__ == '__main__':
-    # relation map need change
-    func_name = 'el'
-    input_file_path = '/data/xkliu/LLMs/DocFixQA/datasets/hotpotQA/turn1_GLM4_result.json'
-    output_file_path = '/data/xkliu/LLMs/DocFixQA/datasets/hotpotQA/turn1_GLM4_el.json'
-    map_file_path = '/data/xkliu/LLMs/DocFixQA/datasets/hotpotQA/tail_map_full.json'
+    func_name = 'entity_map'
+    input_file_path = '/data/xkliu/LLMs/DocFixQA/result/hotpotQA/qwen2.5-32b-instruct/qwen32b_turn01_merge_new_triple_phrase.json'
+    output_file_path = '/data/xkliu/LLMs/DocFixQA/result/hotpotQA/qwen2.5-32b-instruct/qwen32b_turn01_merge_new_triple_id.json'
+    map_file_path = '/data/xkliu/LLMs/DocFixQA/datasets/hotpotQA/turn1_question_tail_map_full.json'
     if func_name == 'expand_entity':
         tail_dict = read_map_dict(map_file_path)
     else:
         tail_dict = None
-    process_by_line(input_file_path, output_file_path, func=func_name, src_key='passages', tgt_key='passage_entity', ner_flag=False,
+    process_by_line(input_file_path, output_file_path, func=func_name, src_key='passages', tgt_key='llm_triple_id', ner_flag=False,
                     entity_key='passage_entity', triple_key='llm_triple', tail_map_dict=tail_dict)
     exit()
     
