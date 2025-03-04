@@ -405,7 +405,7 @@ def prompt_fomular(line:dict, dataset, model=None, shuffle=True, rag=False, src_
         '''explain'''
 
         return content
-    if dataset == 'hotpotQA':
+    if dataset in ['hotpotQA', '2wikimultihopQA', 'PopQA']:
         if add_ref:
             user_prompt = 'Given the following question, references (may or may not be available), explain your reasoning step-by-step based on the references and then provide your best possible answer. If there is no reference or you find the reference irrelevant, please provide an answer based on your knowledge.\n\n'
             if len(line['reference']) > 0:
@@ -520,7 +520,7 @@ def process_file(data, output_file, args, model=None, tokenizer=None, pipeline=N
                     CoT_prompt += '<|start_header_id|>user<|end_header_id|>\n\nGiven the following question and four candidate answers (A, B, C and D), choose the best answer.\n'
                     CoT_prompt += 'Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\nYour response should end with \"The best answer is [the_answer_letter]\" where the [the_answer_letter] is one of A, B, C or D.<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\nThe best answer is {}.<|eot_id|>'.format(dev_line['Question'], dev_line['A'], dev_line['B'], dev_line['C'], dev_line['D'], dev_line['Answer'])
     
-    if args.dataset_name == 'hotpotQA':
+    if args.dataset_name in ['hotpotQA', '2wikimultihopQA', 'PopQA']:
         if args.local_check:
             CoT_prompt = []
         elif args.extract_triple:
@@ -784,7 +784,7 @@ def main(args):
             if args.test:
                 break
         
-    if args.dataset_name in ['hotpotQA', '2wikimultihopQA']:
+    if args.dataset_name == 'hotpotQA':
         import os
         
         if args.split_num == -1:
@@ -794,6 +794,52 @@ def main(args):
             output_file_name = os.path.join(save_dir, '{}.json'.format(args.exp_name))
         else:
             save_dir = os.path.join('result', 'hotpotQA', args.model_name, args.exp_name)
+            if not os.path.exists(save_dir):
+                os.mkdir(save_dir)
+            output_file_name = os.path.join(save_dir, '{}_{}.json'.format(args.exp_name, args.split_num))
+        
+        output_file = open(output_file_name, 'w')
+        if args.split_num == -1:
+            input_file_name = os.path.join(args.dataset_path, '{}.json'.format(args.test_input))
+        else:
+            input_file_name = os.path.join(args.dataset_path, args.test_input, '{}_{}.json'.format(args.test_input, args.split_num))
+        data = open(input_file_name)
+        dev_file = open(os.path.join(args.dataset_path, args.dev_input + '.json'))
+        process_file(data, output_file, args, model=model, tokenizer=tokenizer, pipeline=pipeline, dev_file=dev_file)
+    
+    if args.dataset_name == '2wikimultihopQA':
+        import os
+        
+        if args.split_num == -1:
+            save_dir = os.path.join('result', '2wikimultihopQA', args.model_name)
+            if not os.path.exists(save_dir):
+                os.mkdir(save_dir)
+            output_file_name = os.path.join(save_dir, '{}.json'.format(args.exp_name))
+        else:
+            save_dir = os.path.join('result', '2wikimultihopQA', args.model_name, args.exp_name)
+            if not os.path.exists(save_dir):
+                os.mkdir(save_dir)
+            output_file_name = os.path.join(save_dir, '{}_{}.json'.format(args.exp_name, args.split_num))
+        
+        output_file = open(output_file_name, 'w')
+        if args.split_num == -1:
+            input_file_name = os.path.join(args.dataset_path, '{}.json'.format(args.test_input))
+        else:
+            input_file_name = os.path.join(args.dataset_path, args.test_input, '{}_{}.json'.format(args.test_input, args.split_num))
+        data = open(input_file_name)
+        dev_file = open(os.path.join(args.dataset_path, args.dev_input + '.json'))
+        process_file(data, output_file, args, model=model, tokenizer=tokenizer, pipeline=pipeline, dev_file=dev_file)
+    
+    if args.dataset_name == 'PopQA':
+        import os
+        
+        if args.split_num == -1:
+            save_dir = os.path.join('result', 'PopQA', args.model_name)
+            if not os.path.exists(save_dir):
+                os.mkdir(save_dir)
+            output_file_name = os.path.join(save_dir, '{}.json'.format(args.exp_name))
+        else:
+            save_dir = os.path.join('result', 'PopQA', args.model_name, args.exp_name)
             if not os.path.exists(save_dir):
                 os.mkdir(save_dir)
             output_file_name = os.path.join(save_dir, '{}_{}.json'.format(args.exp_name, args.split_num))

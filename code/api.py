@@ -29,8 +29,6 @@ def chat_with_openai(messages, max_tokens=200):
     response = client.chat.completions.create(
         model="gpt-4o-mini",  # 或 gpt-4，根据需求选择模型
         messages=messages,
-        temperature=0.0,  # 设置为 0，关闭随机性
-        top_p=1.0,        # 保持最高概率选择
         max_tokens=max_tokens   # 控制生成内容的长度
     )
     # 返回生成的回复内容

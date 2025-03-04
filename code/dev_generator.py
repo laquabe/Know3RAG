@@ -123,6 +123,57 @@ def prompt_fomular_kg_local_check(line:dict, have_choice=False):
 
     return messages
 
+def reason_message(line: dict, have_choice):
+    if have_choice == True:
+        system_prompt = 'You are a reasoning expert tasked with explaining answers to multiple-choice questions clearly and concisely, using provided references to enhance your explanation. If no reference is provided, use logical reasoning and general knowledge to support your explanation.'
+        prompt_0 = "I've got some questions, and I need you to help me fill in the gaps in my reasoning. For each question, use the provided references (if available) and the correct answer to write reasoning that:\n"
+        prompt_0 += "- Explains why the correct answer is valid, supported by relevant points from the references (if provided).\n"
+        prompt_0 += "- If no reference is available, rely on logical reasoning and general knowledge to justify the correct answer.\n"
+        prompt_0 += "- If necessary, briefly contrasts it with the incorrect options to highlight key differences, using the references where applicable.\n"
+        prompt_0 += "Output the reasoning directly in full sentences, formatted as follows:\n"
+        prompt_0 += "Reasoning: [Detailed Reasoning]\n\n"
+        prompt_0 += "Now here is the question and its references (if any):\n"
+        for ref_id, ref in enumerate(line['reference']):
+            prompt_0 += "Reference {}: {}\n".format(ref_id, ref)
+        prompt_0 += "Question: {}\nA. {}\nB. {}\nC. {}\nD. {}\nAnswer: {}\n".format(
+            line['Question'], line['A'], line['B'], line['C'], line['D'], line['Answer']
+        )
+        assist_0 = "Reasoning: "
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt_0},
+            {"role": "assistant", "content": assist_0}
+        ]
+
+        return messages
+    else:
+        system_prompt = 'You are a reasoning expert to answer an open-ended question.'
+
+        # prompt_0 = "Please answer the following question. Use the provided answer only as a reference to guide the reasoning process, but do not assume the answer is known to you.\n"
+        prompt_0 = "Please answer the following question.\n"
+
+        # prompt_0 += "- Begin by quickly analyzing the question and identifying the key concepts.\n"
+        # prompt_0 += "- Use references (if available) to help refine your reasoning; otherwise, rely on logical reasoning and general knowledge.\n"
+        # prompt_0 += "- Focus on the essential steps needed to arrive at the correct answer, avoiding unnecessary details.\n"
+        # prompt_0 += "- Keep the explanation concise, highlighting only the most important points of the reasoning.\n"
+        prompt_0 += "- The provided answer should be used only to check if the reasoning aligns with the correct conclusion.\n"
+        prompt_0 += "Output the reasoning directly in full sentences, formatted as follows:\n"
+        prompt_0 += "Reasoning: [Concise and focused reasoning]\n\n"
+        prompt_0 += "Now here is the question:\n"
+        # for ref_id, ref in enumerate(line['reference']):
+        #     prompt_0 += "Reference {}: {}\n".format(ref_id, ref)
+        prompt_0 += "Question: {}\nAnswer: {}\nLet's think step by step.\n".format(line['question'], line['answer'])
+        assist_0 = "Reasoning: "
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt_0},
+            {"role": "assistant", "content": assist_0}
+        ]
+
+        return messages
+    
 def reason_message_with_references(line: dict, have_choice):
     if have_choice == True:
         system_prompt = 'You are a reasoning expert tasked with explaining answers to multiple-choice questions clearly and concisely, using provided references to enhance your explanation. If no reference is provided, use logical reasoning and general knowledge to support your explanation.'
@@ -155,7 +206,7 @@ def reason_message_with_references(line: dict, have_choice):
         prompt_0 += "- Use references (if available) to help refine your reasoning; otherwise, rely on logical reasoning and general knowledge.\n"
         # prompt_0 += "- Focus on the essential steps needed to arrive at the correct answer, avoiding unnecessary details.\n"
         # prompt_0 += "- Keep the explanation concise, highlighting only the most important points of the reasoning.\n"
-        # prompt_0 += "- The provided answer should be used only to check if the reasoning aligns with the correct conclusion.\n"
+        prompt_0 += "- The provided answer should be used only to check if the reasoning aligns with the correct conclusion.\n"
         prompt_0 += "Output the reasoning directly in full sentences, formatted as follows:\n"
         prompt_0 += "Reasoning: [Concise and focused reasoning]\n\n"
         prompt_0 += "Now here is the question and its references (if any):\n"
@@ -340,15 +391,15 @@ def prompt_relation_templates_sentence(line):
     return message
 
 dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/MMLU/data'
-input_path = '/data/xkliu/LLMs/DocFixQA/datasets/hotpotQA'
-input_dir = 'example_rag_top6'
-output_path = '/data/xkliu/LLMs/DocFixQA/datasets/hotpotQA'
-output_dir = 'example_rag_top6_reason'
+input_path = '/data/xkliu/LLMs/DocFixQA/datasets/PopQA'
+input_dir = 'example'
+output_path = '/data/xkliu/LLMs/DocFixQA/datasets/PopQA'
+output_dir = 'example_reason'
 model_name = 'gpt-4o-mini'
 
-input_file_name = os.path.join(input_path, 'example_rag_top6_reason.json')
+input_file_name = os.path.join(input_path, 'example.json')
 input_file = open(input_file_name)
-output_file_name = os.path.join(output_path, 'example_generate_question.json')
+output_file_name = os.path.join(output_path, 'example_reason.json')
 
 processed_lines = set()
 if os.path.exists(output_file_name):
@@ -368,11 +419,12 @@ for line in tqdm(input_file):
         continue
     # message = prompt_fomular_reference_generate(line, have_choice=False, add_entity=True)
     # message = reason_message_with_references(line, have_choice=False)
+    message = reason_message(line, have_choice=False)
     # message = prompt_fomular_kg_local_check(line, have_choice=True)
     # message = prompt_fomular_triple_extraction(line)
     # message = prompt_relation_templates(line)
     # message = prompt_relation_templates_sentence(line)
-    message = prompt_generate_question(line)
+    # message = prompt_generate_question(line)
 
     # for m in message:
     #     print(m['content'] + '\n')
@@ -394,7 +446,7 @@ for line in tqdm(input_file):
     if len(batch) >= batch_num:
         llm_response = asyncio.run(run_batch(batch, model=model_name))
         for l, r in zip(src_line, llm_response):
-            l['new_question'] = r.strip()
+            l['reason'] = r.lstrip('Reasoning:').strip()
             output_file.write(json.dumps(l, ensure_ascii=False) + '\n')
         batch = []
         src_line = []
@@ -402,7 +454,7 @@ for line in tqdm(input_file):
 if len(batch) > 0:
     llm_response = asyncio.run(run_batch(batch, model=model_name))
     for l, r in zip(src_line, llm_response):
-        l['new_question'] = r.strip()
+        l['reason'] = r.lstrip('Reasoning:').strip()
         output_file.write(json.dumps(l, ensure_ascii=False) + '\n')
 
 
