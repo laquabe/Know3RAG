@@ -4,10 +4,10 @@ from tqdm import tqdm
 from utils import read_data
 
 max_new_tokens = 128    # default 100
-task = 'entity'
-card_name = 'knowledge-card-wikipedia'   # knowledge-card-1btokens, knowledge-card-atomic, knowledge-card-reddit, knowledge-card-wikidata, knowledge-card-wikipedia, knowledge-card-yago
+task = 'question'
+card_name = 'knowledge-card-yago'   # knowledge-card-1btokens, knowledge-card-atomic, knowledge-card-reddit, knowledge-card-wikidata, knowledge-card-wikipedia, knowledge-card-yago
 card_path = '/data/xkliu/LLMs/Knowledge_Card-main/cards/{}'.format(card_name)
-card_device = 1
+card_device = 7
 k = 1
 
 card = transformers.pipeline('text-generation', model=card_path, device = card_device, num_return_sequences=k, do_sample=True, max_new_tokens = max_new_tokens)
@@ -63,10 +63,10 @@ if __name__ == '__main__':
     from mmlu_categories import subcategories, categories
 
     # for split_num in range(4):
-    dataset_path = 'datasets/2wikimultihopQA'
+    dataset_path = 'datasets/PopQA'
     input_dir = 'turn1_question_kg'
 
-    save_dir = os.path.join('knowledge_card_result', '2wikimultihopQA', task, "dev", card_name)
+    save_dir = os.path.join('knowledge_card_result', 'PopQA', task, "test", card_name)
     if not os.path.exists(save_dir):
         os.mkdir(save_dir)
 

@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES']='1'
+os.environ['CUDA_VISIBLE_DEVICES']='0'
 import requests
 import json
 from tqdm import tqdm
@@ -290,7 +290,7 @@ def update_head_entity(ent_info:dict, tail_dict:dict):
 
     return des.rstrip('.'), valid_tail_set
 
-def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key, entity_key='llm_triple', triple_key='passage_entity', 
+def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key, entity_key='passage_entity', triple_key='llm_triple', 
                     question_type='open', ner_flag=False, tail_map_dict=None):
     with open(input_file_path) as input_f, \
         open(output_file_path, 'w') as output_f:
@@ -352,9 +352,9 @@ def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key, e
 
 if __name__ == '__main__':
     func_name = 'entity_map'
-    input_file_path = '/data/xkliu/LLMs/DocFixQA/result/2wikimultihopQA/qwen2.5-32b-instruct/Qwen32B_turn01_merge_triple_phrase.json'
-    output_file_path = '/data/xkliu/LLMs/DocFixQA/result/2wikimultihopQA/qwen2.5-32b-instruct/Qwen32B_turn01_merge_triple_id.json'
-    map_file_path = '/data/xkliu/LLMs/DocFixQA/datasets/2wikimultihopQA/turn1_tail_map_full.json'
+    input_file_path = '/data/xkliu/LLMs/DocFixQA/reference/PopQA/test/gpt4omini_turn1_triple.json'
+    output_file_path = '/data/xkliu/LLMs/DocFixQA/reference/PopQA/test/gpt4omini_turn1_triple_id.json'
+    map_file_path = '/data/xkliu/LLMs/DocFixQA/datasets/PopQA/turn1_tail_map_full.json'
     if func_name == 'expand_entity':
         tail_dict = read_map_dict(map_file_path)
     else:

@@ -225,7 +225,7 @@ def reason_message_with_references(line: dict, have_choice):
 
 def prompt_generate_question(line:dict):
     system_prompt = 'You are an expert assistant.'
-    user_1 = 'You will be given references, a question, and an answer. The answer may be incomplete or incorrect. Identify the most critical missing or incorrect information in the references and the answer. Formulate one most important new question that will most effectively help retrieve the necessary information to answer the original question.'
+    user_1 = 'You will be given references, a question, and an answer. The answer may be incomplete or incorrect. Identify the most critical missing or incorrect information in the references and the answer. Ask a new question of the most important to help the original question'
     if len(line['reference']) > 0:
         for ref_id, ref in enumerate(line['reference']):
             user_1 += "Reference {}: {}\n".format(ref_id + 1, ref)
@@ -239,6 +239,39 @@ def prompt_generate_question(line:dict):
         "role":"user", "content": user_1}]
 
     return content
+
+def prompt_CoT(line:dict):
+    system_prompt = 'Please answer the question.'
+    user_0 = 'Q: {}\n'.format(line['question'])
+
+    message = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_0}
+    ]
+    return message
+
+def prompt_CoK(line:dict):
+    system_prompt = 'You are an expert assistant. Before you answer the question, rely on your own knowledge by recalling some of the triples relevant to the question and explaining how they relate to the question.'
+    user_0 = 'Please answer the question. Before you answer the question, please give some evidence triple, here is the example.\n'
+    user_0 += 'Q: Do hamsters provide food for any animals? A: Evidence triples:\n'
+    user_0 += '1. (Hamsters, isA, prey animals)\n'
+    user_0 += '2. (Prey, isA, food for, predators)\n'
+    user_0 += '3. (hamsters, provide food, animals)\n'
+    user_0 += 'Explanation hints: Hamsters are prey animals. Prey are food for predators. Thus, hamsters provide food for some animals. So the answer is yes.'
+    user_0 += 'Now here is the question :\nQ: {}\n'.format(line['question'])
+    user_0 += 'Here is the some references:\n'
+    ref_id = 0
+    for ref in line['query_entity'].values():
+        ref_id += 1
+        user_0 += '{}.{}:{}\n'.format(ref_id + 1, ref['entity'], ref['description'])
+
+    message = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_0},
+        {"role": "assistant", "content": "A: "}
+    ]
+
+    return message
 
 def prompt_fomular_reference_generate(line:dict, sub=False, add_entity=False, have_choice=False):
     if have_choice:
@@ -390,16 +423,45 @@ def prompt_relation_templates_sentence(line):
 
     return message
 
+def prompt_generate_recitation(line):
+    user_0 = 'Please generate a recitation for the following question.\n'
+    user_0 += 'Question: where did united states drop the atomic bomb?\n'
+    user_0 += 'The answer to the above question can be found in the following Wikipedia page, section, and paragraph or table:\n'
+    assit_0 = 'Answer: During the final stage of World War II, the United States detonated two nuclear weapons over the Japanese cities of Hiroshima and Nagasaki on August 6 and 9, 1945, respectively. The United States dropped the bombs after obtaining the consent of the United Kingdom, as required by the Quebec Agreement. The two bombings killed at least 129,000 people, most of whom were civilians. They remain the only use of nuclear weapons in the history of warfare.'
+    user_1 = 'Please generate a recitation for the following question.\n'
+    user_1 += 'Question: {}\n'.format(line['question'])
+    user_1 += 'The answer to the above question can be found in the following Wikipedia page, section, and paragraph or table:\n'
+    assist_1 = 'Answer:'
+
+    message = [
+        {"role": "user", "content": user_0},    
+        {"role": "assistant", "content": assit_0},
+        {"role": "user", "content": user_1},
+        {"role": "assistant", "content": assist_1},
+    ]
+
+    return message
+
+def prompt_recitation_qa(line):
+    user_0 = 'Please answer the question with the reference.\n'
+    user_0 += 'Question: {}\n'.format(line['question'])
+    user_0 += 'Reference: {}\n'.format(line['passages'])
+
+    message = [
+        {"role": "user", "content": user_0},
+    ]
+    
+    return message
 dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/MMLU/data'
 input_path = '/data/xkliu/LLMs/DocFixQA/datasets/PopQA'
 input_dir = 'example'
 output_path = '/data/xkliu/LLMs/DocFixQA/datasets/PopQA'
-output_dir = 'example_reason'
+output_dir = 'example_CoT_0324'
 model_name = 'gpt-4o-mini'
 
-input_file_name = os.path.join(input_path, 'example.json')
+input_file_name = os.path.join(input_path, '{}.json'.format(input_dir))
 input_file = open(input_file_name)
-output_file_name = os.path.join(output_path, 'example_reason.json')
+output_file_name = os.path.join(output_path, '{}.json'.format(output_dir))
 
 processed_lines = set()
 if os.path.exists(output_file_name):
@@ -419,12 +481,16 @@ for line in tqdm(input_file):
         continue
     # message = prompt_fomular_reference_generate(line, have_choice=False, add_entity=True)
     # message = reason_message_with_references(line, have_choice=False)
-    message = reason_message(line, have_choice=False)
+    # message = reason_message(line, have_choice=False)
     # message = prompt_fomular_kg_local_check(line, have_choice=True)
     # message = prompt_fomular_triple_extraction(line)
     # message = prompt_relation_templates(line)
     # message = prompt_relation_templates_sentence(line)
     # message = prompt_generate_question(line)
+    # message = prompt_CoK(line)
+    message = prompt_CoT(line)
+    # message = prompt_generate_recitation(line)
+    # message = prompt_recitation_qa(line)
 
     # for m in message:
     #     print(m['content'] + '\n')
@@ -446,7 +512,7 @@ for line in tqdm(input_file):
     if len(batch) >= batch_num:
         llm_response = asyncio.run(run_batch(batch, model=model_name))
         for l, r in zip(src_line, llm_response):
-            l['reason'] = r.lstrip('Reasoning:').strip()
+            l['reason'] = r.lstrip('A:').strip()
             output_file.write(json.dumps(l, ensure_ascii=False) + '\n')
         batch = []
         src_line = []
@@ -454,7 +520,7 @@ for line in tqdm(input_file):
 if len(batch) > 0:
     llm_response = asyncio.run(run_batch(batch, model=model_name))
     for l, r in zip(src_line, llm_response):
-        l['reason'] = r.lstrip('Reasoning:').strip()
+        l['reason'] = r.lstrip('A:').strip()
         output_file.write(json.dumps(l, ensure_ascii=False) + '\n')
 
 
