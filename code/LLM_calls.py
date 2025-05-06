@@ -72,7 +72,7 @@ def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do
         return response
     elif model_name == 'Qwen_api':
         completion = model.chat.completions.create(
-            model="qwen2.5-72b-instruct", # 模型列表：https://help.aliyun.com/zh/model-studio/getting-started/models
+            model="qwen2.5-72b-instruct", 
             messages=messages,
             temperature=0,
         )
@@ -81,9 +81,7 @@ def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do
     elif model_name == 'Llama':
         if output_logit:
             input_ids = tokenizer(messages[-1]['content'], return_tensors="pt").input_ids.to('cuda')
-            # 禁用梯度计算
             with torch.no_grad():
-                # 使用 generate 方法并返回所有生成步骤的 logits
                 outputs = model.generate(
                     input_ids,
                     max_new_tokens=10,
@@ -91,28 +89,22 @@ def llm_call(messages, model_name, model=None, tokenizer=None, pipeline=None, do
                     output_scores=True,
                     do_sample=do_sample
                 )
-            # 获取最后生成 token 的 logits
             logits = outputs.scores[0] # ?
 
-            # 计算概率并选出前100个最高的
             probs = torch.softmax(logits, dim=-1)
             # top_probs, top_indices = torch.topk(probs, 100)
             # for i in range(100):
             #     print('{}:{}'.format(top_indices[0][i], tokenizer.decode(top_indices[0][i], skip_special_tokens=True)))
 
-            # 获取候选词及其对应的 token IDs
             candidate_tokens = ["A", "B", "C", "D"]
             candidate_ids = [tokenizer.convert_tokens_to_ids(tokenizer.tokenize(option)[0]) for option in candidate_tokens]
             # print(candidate_ids)
             
-            # 筛选候选项的概率
             # candidate_probs = {candidate_tokens[i]: probs[0, candidate_id].item() for i, candidate_id in enumerate(candidate_ids) if candidate_id in top_indices}
             candidate_probs = {candidate_tokens[i]: probs[0, candidate_id].item() for i, candidate_id in enumerate(candidate_ids)}
 
-            # 找出概率最大的候选项或返回 None
             max_option = max(candidate_probs, key=candidate_probs.get) if candidate_probs else None
 
-            # 输出结果
             # print("Probabilities (Top 100):", candidate_probs)
             # print("Selected Option:", max_option)
             return max_option

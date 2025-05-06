@@ -4,45 +4,18 @@ from tqdm import tqdm
 import json
 import aiohttp
 
-# 设置 API 密钥
 
-
-# 定义对话函数
 def chat_with_openai(messages, max_tokens=200):
-    # 调用 OpenAI 的 ChatGPT API
+
     response = client.chat.completions.create(
-        model="gpt-4o-mini",  # 或 gpt-4，根据需求选择模型
+        model="gpt-4o-mini",  
         messages=messages,
-        max_tokens=max_tokens   # 控制生成内容的长度
+        max_tokens=max_tokens   
     )
-    # 返回生成的回复内容
+
     # print(response)
     return response.choices[0].message.content.strip()
 
-
-# Asynchronous function to call the OpenAI API for a single request
-# async def fetch_openai_response(messages, model="gpt-4o-mini", max_tokens=1024):
-#     if 'gpt' in model:
-#         response = await asy_client.chat.completions.create(
-#             model=model,  # Specify the model you want to use
-#             messages=messages,
-#             temperature=0.0,  # 设置为 0，关闭随机性
-#             top_p=1.0,        # 保持最高概率选择
-#             max_tokens=max_tokens   # 控制生成内容的长度
-#         )
-#     elif 'qwen' in model:
-#         response = await asy_client_qwen.chat.completions.create(
-#             model=model,  # Specify the model you want to use
-#             messages=messages,
-#             temperature=0.0,  # 设置为 0，关闭随机性
-#             top_p=1.0,        # 保持最高概率选择
-#             max_tokens=max_tokens   # 控制生成内容的长度
-#         )
-#     else:
-#         print('error')
-#         exit()
-
-#     return response.choices[0].message.content.strip()
 
 async def fetch_openai_response(messages, model="gpt-4o-mini", max_tokens=1024, timeout=30):
     if 'gpt' in model:
@@ -137,11 +110,11 @@ def run_file(input_file_name, output_file_name, model_name, res_key='llm_respons
                 output_file.write(json.dumps(l, ensure_ascii=False) + '\n')
 
         print('Bad Request: {}'.format(error_num))
-# 使用示例
+
 if __name__ == "__main__":
     # user_input = [{"role":"user", "content":"苏轼为何没有参加苏东坡的葬礼？"}]
     # reply = chat_with_openai(user_input)
-    # print("AI 的回复：", reply)
+    # print("Response：", reply)
 
     # asyncio.run(batch_run())
 

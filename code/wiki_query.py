@@ -7,9 +7,7 @@ from collections import Counter
 import copy
 
 def most_frequent_elements_sorted(lst):
-    # 统计元素出现次数
     counts = Counter(lst)
-    # 对元素按照出现次数从大到小排序
     sorted_elements = sorted(counts.items(), key=lambda x: (-x[1], lst.index(x[0])))
     return [element for element, count in sorted_elements]
 

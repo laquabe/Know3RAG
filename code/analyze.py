@@ -6,22 +6,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 def draw_bar(values1, values2, categories, save_path):
-    # 数据准备
     # categories = ['A', 'B', 'C', 'D']
     # values1 = [20, 35, 30, 35]
     # values2 = [25, 32, 34, 20]
 
-    # 柱状图的宽度
     bar_width = 0.35
 
-    # x轴位置
     x = np.arange(len(categories))
 
-    # 创建柱状图
     bars1 = plt.bar(x - bar_width / 2, values1, bar_width, label='Tunr0 True', color='blue')
     bars2 = plt.bar(x + bar_width / 2, values2, bar_width, label='Merge True', color='orange')
 
-    # 添加数值标签
     for bar in bars1:
         yval = bar.get_height()
         plt.text(bar.get_x() + bar.get_width() / 2, yval + 0.5, str(yval), ha='center', va='bottom')
@@ -30,14 +25,12 @@ def draw_bar(values1, values2, categories, save_path):
         yval = bar.get_height()
         plt.text(bar.get_x() + bar.get_width() / 2, yval + 0.5, str(yval), ha='center', va='bottom')
 
-    # 添加图例和标签
     plt.xlabel('Categories')
     plt.ylabel('Values')
     plt.title('Double Column Bar Chart')
     plt.xticks(x, categories)
     plt.legend()
 
-    # 显示图表
     plt.savefig(save_path)
 
 def compare_entity_cover(input_file_name):

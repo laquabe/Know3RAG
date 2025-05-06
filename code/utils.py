@@ -290,7 +290,7 @@ def pair_merge(input_file_name, output_file_name, func, dataset, summary_map_dic
 
 def json_decode(ans:str):
     json_pattern = r'\{.*?\}'
-    match = re.search(json_pattern, ans, re.DOTALL)  # re.DOTALL 允许 . 匹配换行符
+    match = re.search(json_pattern, ans, re.DOTALL)  # re.DOTALL 
 
     if match:
         json_str = match.group()
@@ -305,7 +305,7 @@ def json_decode(ans:str):
 
 def triple_extraction_decode(ans:str):
     json_pattern = r'\[.*?\]'
-    match = re.match(json_pattern, ans, re.DOTALL)  # re.DOTALL 允许 . 匹配换行符
+    match = re.match(json_pattern, ans, re.DOTALL)  # re.DOTALL 
     phrase_flag = False
 
     if match:
@@ -343,7 +343,6 @@ forbidden_list = set(['--','I', 'you', 'he', 'she', 'it', 'we', 'they', 'this', 
                       'language', 'city', 'family member', 'hobby', 'sport', 'project', 'skill', 'neighborhood', 'website', 'community', 'judge', 'court'])
 
 def triple_verication(list_raw:list):
-    '''纯数字我们不处理，他仍然是合法的'''
     list_new = []
     
     for t in list_raw:
@@ -631,18 +630,18 @@ if __name__ == "__main__":
     import os
 
     dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/2wikimultihopQA'
-    input_path = '/data/xkliu/LLMs/DocFixQA/result/hotpotQA/gpt-4o-mini/baseline'
-    input_dir = 'recitation_0324'
-    output_path = '/data/xkliu/LLMs/DocFixQA/datasets/hotpotQA'
-    output_dir = 'baseline_gpt4omini_recitation_0324'
+    input_path = '/data/xkliu/LLMs/DocFixQA/result/hotpotQA/gpt-4o-mini'
+    input_dir = 'GLM4_turn0_rag_noglobal_check_0430'
+    output_path = '/data/xkliu/LLMs/DocFixQA/result/hotpotQA/gpt-4o-mini'
+    output_dir = 'turn012_merge4case'
     kc_name = 'knowledge-card-wikipedia'
-    ref_src = 'triple_score'
+    ref_src = 'local_check'
 
     '''hotpotQA'''
     input_file_list = [os.path.join(input_path, f) for f in os.listdir(os.path.join(input_path))]
     # Turn 0 
-    self_inner_file_list = [os.path.join(input_path, 'gpt4omini_turn0_{}.json'.format(ref_src))]
-    self_extra_file_list = [os.path.join(input_path, 'pseudo_entity_gpt4omini_turn0_{}.json'.format(ref_src))]
+    self_inner_file_list = [os.path.join(input_path, 'GLM4_turn0_{}.json'.format(ref_src))]
+    self_extra_file_list = [os.path.join(input_path, 'pseudo_entity_GLM4_turn0_{}.json'.format(ref_src))]
 
     kc_inner_file_list = [os.path.join(input_path, 'knowledge-card-wikidata_turn0_question_{}.json'.format(ref_src)),
                           os.path.join(input_path, 'knowledge-card-wikipedia_turn0_question_{}.json'.format(ref_src)),
@@ -673,33 +672,33 @@ if __name__ == "__main__":
     input_file_list = []
     # input_file_list.extend(self_inner_file_list)
     # input_file_list.extend(self_extra_file_list)
-    # input_file_list.extend(kc_inner_file_list)
+    input_file_list.extend(kc_inner_file_list)
     # input_file_list.extend(kc_extra_file_list)
     # input_file_list.extend(llm_inner_file_list)
     # input_file_list.extend(llm_extra_file_list)
 
-    input_file_list.extend(turn1_self_inner_file_list)
-    input_file_list.extend(turn1_self_extra_file_list)
-    input_file_list.extend(turn1_kc_inner_file_list)
-    input_file_list.extend(turn1_kc_extra_file_list)
-    input_file_list.extend(turn1_llm_inner_file_list)
-    input_file_list.extend(turn1_llm_extra_file_list)
+    # input_file_list.extend(turn1_self_inner_file_list)
+    # input_file_list.extend(turn1_self_extra_file_list)
+    # input_file_list.extend(turn1_kc_inner_file_list)
+    # input_file_list.extend(turn1_kc_extra_file_list)
+    # input_file_list.extend(turn1_llm_inner_file_list)
+    # input_file_list.extend(turn1_llm_extra_file_list)
 
-    input_file_list = [os.path.join(input_path, 'turn1_reference_local_check.json'),
-                     os.path.join(input_path, 'turn1_reference_triple_score.json'),]
+    input_file_list = [os.path.join(input_path, 'turn0_reference_kc_local_check.json'),
+                     os.path.join(input_path, 'turn0_reference_kc_triple_score.json'),]
     
-    input_file_list = ['/data/xkliu/LLMs/DocFixQA/reference/PopQA/test/gpt4omini_turn1_rag_top6.json',
-                       '/data/xkliu/LLMs/DocFixQA/datasets/PopQA/gpt4omini_turn0_rag.json',]
+    input_file_list = ['/data/xkliu/LLMs/DocFixQA/result/hotpotQA/gpt-4o-mini/turn01_wait4merge.json',
+                       '/data/xkliu/LLMs/DocFixQA/result/hotpotQA/gpt-4o-mini/turn012_wait4merge.json',]
     
-    # input_file_list = [os.path.join(input_path,  'baseline_CoT_{}.json'.format(i)) for i in range(4)]
+    # input_file_list = [os.path.join(input_path,  'GLM4_turn0_rag_noglobal_check_0430_{}.json'.format(i)) for i in range(4)]
     
     input_file_name = os.path.join(input_path,'{}.json'.format(input_dir))
     output_file_name = os.path.join(output_path, '{}.json'.format(output_dir))
     
     # list2pair(input_file_name, output_file_name, 'knowledge_card', line_mode=True)
-    # merge_file(input_file_list, output_file_name, type='reference_extend', merge_key={'local_check': 'local_check'}, index_key='id')
-    process_by_line(input_file_name, output_file_name, 'reference', tgt_key_name='passages', src_key_name='llm_response')
-    # pair_merge(input_file_name, output_file_name, 'filter', dataset='hotpotQA', top_k=6)
+    merge_file(input_file_list, output_file_name, type='merge', merge_key={'old_llm_response': 'turn0_llm_response', 'llm_triple_score':'turn0_triple_score'}, index_key='id')
+    # process_by_line(input_file_name, output_file_name, 'reliability_phrase', tgt_key_name='local_check', src_key_name='llm_response')
+    # pair_merge(input_file_name, output_file_name, 'filter', dataset='hotpotQA', top_k=3)
     exit()
 
     '''MMLU'''
