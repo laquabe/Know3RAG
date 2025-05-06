@@ -5,23 +5,7 @@ import json
 import aiohttp
 
 # 设置 API 密钥
-api_key = "sk-bmwkR9aGv1DHGAzjrK6OZYhKGFNi479CoZ4M6GZCgMtm9Fja"
-qwen_api_key = 'sk-65f20a70ff784c6b930d9de8db73ffe7'
 
-client = openai.OpenAI(
-    base_url="https://api2.aigcbest.top/v1",
-    api_key=api_key,  # This is the default and can be omitted
-)
-
-asy_client = openai.AsyncOpenAI(
-    base_url="https://api2.aigcbest.top/v1",
-    api_key=api_key,  # This is the default and can be omitted
-)
-
-asy_client_qwen = openai.AsyncOpenAI(
-    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-    api_key=qwen_api_key,  # This is the default and can be omitted
-)
 
 # 定义对话函数
 def chat_with_openai(messages, max_tokens=200):
