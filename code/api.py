@@ -4,24 +4,6 @@ from tqdm import tqdm
 import json
 import aiohttp
 
-# 设置 API 密钥
-api_key = "sk-0rlHNbHDvkZN1mDAD833331858744919959419997fE43845"
-qwen_api_key = 'sk-65f20a70ff784c6b930d9de8db73ffe7'
-
-client = openai.OpenAI(
-    base_url="https://aihubmix.com/v1",
-    api_key=api_key,  # This is the default and can be omitted
-)
-
-asy_client = openai.AsyncOpenAI(
-    base_url="https://aihubmix.com/v1",
-    api_key=api_key,  # This is the default and can be omitted
-)
-
-asy_client_qwen = openai.AsyncOpenAI(
-    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-    api_key=qwen_api_key,  # This is the default and can be omitted
-)
 
 
 def chat_with_openai(messages, max_tokens=200):
