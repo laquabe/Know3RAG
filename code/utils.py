@@ -4,6 +4,8 @@ import re
 from tqdm import tqdm
 import numpy as np
 import copy
+import argparse
+import os
 MAX_SCORE = 10000
 
 def read_data(dataset_name, file_path):
@@ -56,11 +58,6 @@ def list2pair(input_file_name, output_file_name, func, line_mode=True):
                     if 'passages' in new_line.keys():
                         del new_line['passages']
                     del new_line['generate']
-                    # s = s.split('.')
-                    # s = '.'.join(s[:-1])
-                    # s += '.'
-                    # if len(s) == 0:
-                    #     continue
                     s = s.strip().lstrip('Answer:').strip()
                     new_line['passages'] = s
                     if 'orginal_question' in line.keys():
@@ -203,15 +200,10 @@ def pair_merge(input_file_name, output_file_name, func, dataset, summary_map_dic
                     if filter_exinfo(line['llm_response'], check_key='reliability'):
                         ex_info_list = id2info[l_id]
                         if line['summary'] not in ex_info_list:
-                            # ex_info_list.append(line['summary'])
                             ex_info_list.append(line['passages'])
                             if l_id == 3:
                                 print(json.dumps(line))
                         id2info[l_id] = ex_info_list
-                    # else:
-                    #     ex_info_list = id2info[l_id]
-                    #     ex_info_list.append(line['summary'])
-                    #     id2info[l_id] = ex_info_list
                 if func == 'raw':
                     ex_info_list = id2info[l_id]
                     ex_info_list.append(line['summary'])
@@ -252,17 +244,11 @@ def pair_merge(input_file_name, output_file_name, func, dataset, summary_map_dic
                 for ref in ref_list:
                     if func == 'filter':
                         if ref['local_check'] == True:
-                            # if ref['triple_score'] == None:
-                            #     continue
-                            # elif ref['triple_score'] > 10:
-                            #     continue
-
                             ref_p_valid.append(ref['passages'])
-                            # ref_p_valid.append(ref['summary'])
                             ref_s_valid.append(ref['triple_score'])
                     elif func == 'raw':
                         ref_p_valid.append(ref['passages'])
-                        # ref_p_valid.append(ref['summary'])
+                        
                         ref_s_valid.append(ref['triple_score'])
                     else:
                         print('func error')
@@ -427,16 +413,9 @@ def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, 
                 line['orginal_question'] = line['question']
                 line['question'] = line['llm_response'].strip()
                 del line['llm_response']
-                # del line['passages']
+
             if func == 'reference':
-                '''old for json phrase'''
-                # res, json_flag = json_decode(line['llm_response'])
-                # if json_flag:
-                #     line['pseudo_doc'] = res['reference_paragraph']
-                # else:
-                #     line['pseudo_doc'] = line['Question']
-                #     error_num += 1
-                '''new for str'''
+                '''for str'''
                 line[tgt_key_name] = line[src_key_name].strip()
             if func == 'triple_extract':
                 res, json_flag = triple_extraction_decode(line['llm_response'])
@@ -612,70 +591,51 @@ def merge_file(input_file_list:list, output_file_name, type='concat', merge_key=
 
 
 if __name__ == "__main__":
-    # read_data('Truthful_QA', '/data/xkliu/LLMs/DocFixQA/datasets/truthfulqa_mc_task.json')
-    # list2pair('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/entity_knowledge-card-all_raw.json',
-    #           '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/entity_knowledge-card-all.json',
-    #           'knowledge_card')
-    # summary_dict = read_map('/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/summary_all.json', map_func='local')
-    # pair_merge('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/pseudoEntity_card_question_local_check.json',
-    #              '/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/pseudoEntity_card_question_local_check_filter_dev.json',
-    #              'filter', summary_map_dict=None)
-    # subq_dict = read_map('/data/xkliu/LLMs/DocFixQA/datasets/TemporalQA/pseudo_doc_generate_question_entity.json', 'pseudo_doc')
-    # process_by_line('/data/xkliu/LLMs/DocFixQA/result/TemporalQA/Llama/entity_knowledge-card-all_triples_woentity.json',
-    #                 '/data/xkliu/LLMs/DocFixQA/result/TemporalQA/process_data/entity_knowledge-card-all_triples_woentity.json',
-    #                 'triple_extract', id2subq_dict=None)
-    # res, _ = triple_extraction_decode("I'll extract the relationships between the provided entities from the given text.\n\nAfter analyzing the text and the provided entities, I found the following relationships:\n\n[{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"got completed\", \"object\": \"None\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"must be created\", \"object\": \"murtis\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"made\", \"object\": \"murtis\"}, \n{\"subject\": \"shanthamadurai\", \"predicate\": \"is brought out\", \"object\": \"moon light\"}, \n{\"subject\": \"moon light\", \"predicate\": \"is brought\", \"object\": \"house\"}]\n\nNote that the entity \"reference\" is not related to any other entity in the text, so it's not included in the output. Also, the entity \"question\" is not directly related to any other entity, but it's mentioned in the context of \"lakshmi kalyanam\", so I didn't include it as a separate entity.\n\nThe entity \"purpose\" is related to the creation of murtis, but it's not a direct relationship, so I didn't include it as a separate triple. Similarly, the entity \"reason\" is mentioned as the same reason as they made murtis for kalyanam, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"ceremony\" is mentioned in the context of creating murtis, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"kalyanam\" is mentioned multiple times, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"light\" is mentioned as \"moon light\", but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"place\" is mentioned as the place where shanthamadurai was staying, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"house\" is mentioned as the place where the moon light is brought, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"moon\" is mentioned as the source of the moon light, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nSo, the final output is:\n\n[{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"got completed\", \"object\": \"None\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"must be created\", \"object\": \"murtis\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"made\", \"object\": \"murtis\"}, \n{\"subject\": \"shanthamadurai\", \"predicate\": \"is brought out\", \"object\": \"moon light\"}, \n{\"subject\": \"moon light\", \"predicate\": \"is brought\", \"object\": \"house\"}]I'll extract the relationships between the provided entities from the given text.\n\nAfter analyzing the text and the provided entities, I found the following relationships:\n\n[{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"got completed\", \"object\": \"None\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"must be created\", \"object\": \"murtis\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"made\", \"object\": \"murtis\"}, \n{\"subject\": \"shanthamadurai\", \"predicate\": \"is brought out\", \"object\": \"moon light\"}, \n{\"subject\": \"moon light\", \"predicate\": \"is brought\", \"object\": \"house\"}]\n\nNote that the entity \"reference\" is not related to any other entity in the text, so it's not included in the output. Also, the entity \"question\" is not directly related to any other entity, but it's mentioned in the context of \"lakshmi kalyanam\", so I didn't include it as a separate entity.\n\nThe entity \"purpose\" is related to the creation of murtis, but it's not a direct relationship, so I didn't include it as a separate triple. Similarly, the entity \"reason\" is mentioned as the same reason as they made murtis for kalyanam, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"ceremony\" is mentioned in the context of creating murtis, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"kalyanam\" is mentioned multiple times, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"light\" is mentioned as \"moon light\", but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"place\" is mentioned as the place where shanthamadurai was staying, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"house\" is mentioned as the place where the moon light is brought, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nThe entity \"moon\" is mentioned as the source of the moon light, but it's not a direct relationship, so I didn't include it as a separate triple.\n\nSo, the final output is:\n\n[{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"got completed\", \"object\": \"None\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"must be created\", \"object\": \"murtis\"}, \n{\"subject\": \"lakshmi kalyanam\", \"predicate\": \"made\", \"object\": \"murtis\"}, \n{\"subject\": \"shanthamadurai\", \"predicate\": \"is brought out\", \"object\": \"moon light\"}, \n{\"subject\": \"moon light\", \"predicate\": \"is brought\", \"object\": \"house\"}]")
-    # print(res)
+    # dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/2wikimultihopQA'
+    # input_path = '/data/xkliu/LLMs/DocFixQA/result/hotpotQA/gpt-4o-mini'
+    # input_dir = 'GLM4_turn0_rag_noglobal_check_0430'
+    # output_path = '/data/xkliu/LLMs/DocFixQA/result/hotpotQA/gpt-4o-mini'
+    # output_dir = 'turn012_merge4case'
+    # kc_name = 'knowledge-card-wikipedia'
+    # ref_src = 'local_check'
 
-    import os
+    # input_file_list = []
+    # '''Turn 0'''
+    # self_inner_file_list = [os.path.join(input_path, 'GLM4_turn0_{}.json'.format(ref_src))]
+    # self_extra_file_list = [os.path.join(input_path, 'pseudo_entity_GLM4_turn0_{}.json'.format(ref_src))]
 
-    dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/2wikimultihopQA'
-    input_path = '/data/xkliu/LLMs/DocFixQA/result/hotpotQA/gpt-4o-mini'
-    input_dir = 'GLM4_turn0_rag_noglobal_check_0430'
-    output_path = '/data/xkliu/LLMs/DocFixQA/result/hotpotQA/gpt-4o-mini'
-    output_dir = 'turn012_merge4case'
-    kc_name = 'knowledge-card-wikipedia'
-    ref_src = 'local_check'
-
-    '''hotpotQA'''
-    input_file_list = [os.path.join(input_path, f) for f in os.listdir(os.path.join(input_path))]
-    # Turn 0 
-    self_inner_file_list = [os.path.join(input_path, 'GLM4_turn0_{}.json'.format(ref_src))]
-    self_extra_file_list = [os.path.join(input_path, 'pseudo_entity_GLM4_turn0_{}.json'.format(ref_src))]
-
-    kc_inner_file_list = [os.path.join(input_path, 'knowledge-card-wikidata_turn0_question_{}.json'.format(ref_src)),
-                          os.path.join(input_path, 'knowledge-card-wikipedia_turn0_question_{}.json'.format(ref_src)),
-                          os.path.join(input_path, 'knowledge-card-yago_turn0_question_{}.json'.format(ref_src)),]
-    kc_extra_file_list = [os.path.join(input_path, 'knowledge-card-wikidata_turn0_entity_{}.json'.format(ref_src)),
-                          os.path.join(input_path, 'knowledge-card-wikipedia_turn0_entity_{}.json'.format(ref_src)),
-                          os.path.join(input_path, 'knowledge-card-yago_turn0_entity_{}.json'.format(ref_src)),]
-    llm_inner_file_list = [os.path.join(input_path, 'Llama_turn0_{}.json'.format(ref_src)),
-                           os.path.join(input_path, 'Qwen_turn0_{}.json'.format(ref_src)),]
-    llm_extra_file_list = [os.path.join(input_path, 'pseudo_entity_Llama_turn0_{}.json'.format(ref_src)),
-                           os.path.join(input_path, 'pseudo_entity_Qwen_turn0_{}.json'.format(ref_src)),]
-    # Turn 1
-    turn1_self_inner_file_list = [os.path.join(input_path, 'gpt4omini_turn1_{}.json'.format(ref_src))]
-    turn1_self_extra_file_list = [os.path.join(input_path, 'pseudo_entity_gpt4omini_turn1_{}.json'.format(ref_src))]
-
-    turn1_kc_inner_file_list = [os.path.join(input_path, 'knowledge-card-wikidata_turn1_question_{}.json'.format(ref_src)),
-                          os.path.join(input_path, 'knowledge-card-wikipedia_turn1_question_{}.json'.format(ref_src)),
-                          os.path.join(input_path, 'knowledge-card-yago_turn1_question_{}.json'.format(ref_src)),]
-    turn1_kc_extra_file_list = [os.path.join(input_path, 'knowledge-card-wikidata_turn1_entity_{}.json'.format(ref_src)),
-                          os.path.join(input_path, 'knowledge-card-wikipedia_turn1_entity_{}.json'.format(ref_src)),
-                          os.path.join(input_path, 'knowledge-card-yago_turn1_entity_{}.json'.format(ref_src)),]
-    turn1_llm_inner_file_list = [os.path.join(input_path, 'Llama_turn1_{}.json'.format(ref_src)),
-                           os.path.join(input_path, 'Qwen_turn1_{}.json'.format(ref_src)),]
-    turn1_llm_extra_file_list = [os.path.join(input_path, 'pseudo_entity_Llama_turn1_{}.json'.format(ref_src)),
-                           os.path.join(input_path, 'pseudo_entity_Qwen_turn1_{}.json'.format(ref_src)),]
-
-
-    input_file_list = []
+    # kc_inner_file_list = [os.path.join(input_path, 'knowledge-card-wikidata_turn0_question_{}.json'.format(ref_src)),
+    #                       os.path.join(input_path, 'knowledge-card-wikipedia_turn0_question_{}.json'.format(ref_src)),
+    #                       os.path.join(input_path, 'knowledge-card-yago_turn0_question_{}.json'.format(ref_src)),]
+    # kc_extra_file_list = [os.path.join(input_path, 'knowledge-card-wikidata_turn0_entity_{}.json'.format(ref_src)),
+    #                       os.path.join(input_path, 'knowledge-card-wikipedia_turn0_entity_{}.json'.format(ref_src)),
+    #                       os.path.join(input_path, 'knowledge-card-yago_turn0_entity_{}.json'.format(ref_src)),]
+    # llm_inner_file_list = [os.path.join(input_path, 'Llama_turn0_{}.json'.format(ref_src)),
+    #                        os.path.join(input_path, 'Qwen_turn0_{}.json'.format(ref_src)),]
+    # llm_extra_file_list = [os.path.join(input_path, 'pseudo_entity_Llama_turn0_{}.json'.format(ref_src)),
+    #                        os.path.join(input_path, 'pseudo_entity_Qwen_turn0_{}.json'.format(ref_src)),]
+    
     # input_file_list.extend(self_inner_file_list)
     # input_file_list.extend(self_extra_file_list)
-    input_file_list.extend(kc_inner_file_list)
+    # input_file_list.extend(kc_inner_file_list)
     # input_file_list.extend(kc_extra_file_list)
     # input_file_list.extend(llm_inner_file_list)
     # input_file_list.extend(llm_extra_file_list)
+
+    # '''Turn 1'''
+    # turn1_self_inner_file_list = [os.path.join(input_path, 'gpt4omini_turn1_{}.json'.format(ref_src))]
+    # turn1_self_extra_file_list = [os.path.join(input_path, 'pseudo_entity_gpt4omini_turn1_{}.json'.format(ref_src))]
+
+    # turn1_kc_inner_file_list = [os.path.join(input_path, 'knowledge-card-wikidata_turn1_question_{}.json'.format(ref_src)),
+    #                       os.path.join(input_path, 'knowledge-card-wikipedia_turn1_question_{}.json'.format(ref_src)),
+    #                       os.path.join(input_path, 'knowledge-card-yago_turn1_question_{}.json'.format(ref_src)),]
+    # turn1_kc_extra_file_list = [os.path.join(input_path, 'knowledge-card-wikidata_turn1_entity_{}.json'.format(ref_src)),
+    #                       os.path.join(input_path, 'knowledge-card-wikipedia_turn1_entity_{}.json'.format(ref_src)),
+    #                       os.path.join(input_path, 'knowledge-card-yago_turn1_entity_{}.json'.format(ref_src)),]
+    # turn1_llm_inner_file_list = [os.path.join(input_path, 'Llama_turn1_{}.json'.format(ref_src)),
+    #                        os.path.join(input_path, 'Qwen_turn1_{}.json'.format(ref_src)),]
+    # turn1_llm_extra_file_list = [os.path.join(input_path, 'pseudo_entity_Llama_turn1_{}.json'.format(ref_src)),
+    #                        os.path.join(input_path, 'pseudo_entity_Qwen_turn1_{}.json'.format(ref_src)),]
 
     # input_file_list.extend(turn1_self_inner_file_list)
     # input_file_list.extend(turn1_self_extra_file_list)
@@ -684,53 +644,115 @@ if __name__ == "__main__":
     # input_file_list.extend(turn1_llm_inner_file_list)
     # input_file_list.extend(turn1_llm_extra_file_list)
 
-    input_file_list = [os.path.join(input_path, 'turn0_reference_kc_local_check.json'),
-                     os.path.join(input_path, 'turn0_reference_kc_triple_score.json'),]
+    # '''else'''
+    # input_file_list = [os.path.join(input_path, 'turn0_reference_kc_local_check.json'),
+    #                  os.path.join(input_path, 'turn0_reference_kc_triple_score.json'),]
     
-    input_file_list = ['/data/xkliu/LLMs/DocFixQA/result/hotpotQA/gpt-4o-mini/turn01_wait4merge.json',
-                       '/data/xkliu/LLMs/DocFixQA/result/hotpotQA/gpt-4o-mini/turn012_wait4merge.json',]
+    # input_file_list = ['/data/xkliu/LLMs/DocFixQA/result/hotpotQA/gpt-4o-mini/src_file.json',
+    #                    '/data/xkliu/LLMs/DocFixQA/result/hotpotQA/gpt-4o-mini/tgt_file.json',]
     
-    # input_file_list = [os.path.join(input_path,  'GLM4_turn0_rag_noglobal_check_0430_{}.json'.format(i)) for i in range(4)]
+    # input_file_list = [os.path.join(input_path,  'test_{}.json'.format(i)) for i in range(4)]
     
-    input_file_name = os.path.join(input_path,'{}.json'.format(input_dir))
-    output_file_name = os.path.join(output_path, '{}.json'.format(output_dir))
+    # input_file_name = os.path.join(input_path,'{}.json'.format(input_dir))
+    # output_file_name = os.path.join(output_path, '{}.json'.format(output_dir))
     
     # list2pair(input_file_name, output_file_name, 'knowledge_card', line_mode=True)
-    merge_file(input_file_list, output_file_name, type='merge', merge_key={'old_llm_response': 'turn0_llm_response', 'llm_triple_score':'turn0_triple_score'}, index_key='id')
+    # merge_file(input_file_list, output_file_name, type='merge', merge_key={'old_llm_response': 'turn0_llm_response', 'llm_triple_score':'turn0_triple_score'}, index_key='id')
     # process_by_line(input_file_name, output_file_name, 'reliability_phrase', tgt_key_name='local_check', src_key_name='llm_response')
-    # pair_merge(input_file_name, output_file_name, 'filter', dataset='hotpotQA', top_k=3)
-    exit()
+    # pair_merge(input_file_name, output_file_name, 'filter', dataset='hotpotQA', top_k=5)
 
-    '''MMLU'''
-    #load src dir
-    subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(dataset_path, "dev")) if "_dev.json" in f])
+    parser = argparse.ArgumentParser(description='Data Processing Script for Know3RAG')
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
-    # mkdir save dir
-    save_dir = os.path.join(output_path, output_dir)
-    if not os.path.exists(save_dir):
-        os.mkdir(save_dir)
-    all_num = 0
-    for sub in subjects:
-        # if sub != 'moral_scenarios':
-        #     continue
-        print(sub)
-        input_file_name = os.path.join(input_path, 'dev', input_dir, sub + "_dev.json")
-        # input_file_list = [
-        #     os.path.join(input_path, 'dev', 'entity', "{}_knowledge-card-wikipedia.json".format(sub)),
-        #     os.path.join(input_path, 'dev', 'entity', "{}_knowledge-card-yago.json".format(sub)),
-        #     os.path.join(input_path, 'dev', 'pseudo_doc', "{}_pseudo_doc.json".format(sub)),
-        #     os.path.join(input_path, 'dev', 'question', "{}_knowledge-card-wikipedia.json".format(sub)),
-        #     os.path.join(input_path, 'dev', 'question', "{}_knowledge-card-yago.json".format(sub)),
-        #     os.path.join(input_path, 'dev', 'choice', "{}_knowledge-card-wikipedia.json".format(sub)),
-        #     os.path.join(input_path, 'dev', 'choice', "{}_knowledge-card-yago.json".format(sub))
-        # ]
-        input_file_list = [os.path.join(input_path,  'question_el_{}_kc.json'.format(i)) for i in range(4)]
+    # --- Subparser for list2pair ---
+    list2pair_parser = subparsers.add_parser('list2pair', help='Convert lists in input lines to individual lines for Knowledge Card.')
+    list2pair_parser.add_argument('--input_file', required=True, help='Path to the input JSONL file.')
+    list2pair_parser.add_argument('--output_file', required=True, help='Path for the output JSONL file.')
 
-        output_file_name = os.path.join(save_dir, "{}.json".format(sub))
+    # --- Subparser for process_by_line ---
+    pbl_parser = subparsers.add_parser('process_by_line', help='Process input file line by line based on a function.')
+    pbl_parser.add_argument('--input_file', required=True, help='Path to the input JSONL file.')
+    pbl_parser.add_argument('--output_file', required=True, help='Path for the output JSONL file.')
+    pbl_parser.add_argument('--func', required=True,
+                            choices=['phrase_question', 'reference', 'triple_extract',
+                                     'add_reference', 'add_question_entity', 'add_key',
+                                     'add_pseudo_doc_simple', 'reliability_phrase', 'self_ask',
+                                     'get_decompose', 'map_decompose', 'count', 'result_merge'],
+                            help='Functionality mode for process_by_line.')
+    pbl_parser.add_argument('--src_key', help='Source key name for functions that copy/reference data.')
+    pbl_parser.add_argument('--tgt_key', help='Target key name for functions that write processed data.')
+    pbl_parser.add_argument('--map_file', help='Path to a JSONL file used to build a map (e.g., for sub-questions, pseudo_docs).')
+    pbl_parser.add_argument('--map_func', choices=['summary', 'sub_question', 'question_entity', 'pseudo_doc', 'local_check'],
+                            help='Functionality mode for reading the map file.')
 
-        merge_file(input_file_list, output_file_name, type='concat', merge_key={'llm_response': 'turn1_response', 'reference':'reference'}, index_key='Question')
-        # all_num += process_by_line(input_file_name, output_file_name, 'triple_extract', tgt_key_name='llm_triple', src_key_name='llm_response')
-        # list2pair(input_file_name, output_file_name, 'knowledge_card', line_mode=True)
-        # pair_merge(input_file_name, output_file_name, 'filter', dataset='MMLU', summary_map_dict=None)
-    
-    print(all_num)
+
+    # --- Subparser for merge_files ---
+    merge_parser = subparsers.add_parser('merge_files', help='Merge multiple JSONL files.')
+    merge_parser.add_argument('--input_files', nargs='+', required=True, help='List of input JSONL files to merge.')
+    merge_parser.add_argument('--output_file', required=True, help='Path for the output JSONL file.')
+    merge_parser.add_argument('--type', required=True, choices=['concat', 'merge', 'reference_extend'],
+                              help='Merge type: concat, merge, or reference_extend.')
+    merge_parser.add_argument('--merge_key', nargs='+', metavar='SRC_KEY=TGT_KEY',
+                              help='Key mappings for "merge" type (e.g., --merge_key old_llm_response=turn0_llm_response). Can be repeated.')
+    merge_parser.add_argument('--index_key',
+                              help='Key used to match lines between files for "merge" and "reference_extend" types (e.g., "id", "Question").')
+    merge_parser.add_argument('--have_choice', action='store_true',
+                              help='Use special key concatenation for MMLU-like datasets (Question + Choices) when matching by index_key.')
+
+    # --- Subparser for pair_merge ---
+    pair_merge_parser = subparsers.add_parser('pair_merge', help='Aggregate paired data back into original structure.')
+    pair_merge_parser.add_argument('--input_file', required=True, help='Path to the input JSONL file containing paired data.')
+    pair_merge_parser.add_argument('--output_file', required=True, help='Path for the output JSONL file with aggregated data.')
+    pair_merge_parser.add_argument('--func', required=True, choices=['raw', 'filter'],
+                                   help='Functionality mode for pair_merge: raw (collect all), filter (use local check).')
+    pair_merge_parser.add_argument('--top_k', type=int, default=3,
+                                   help='Select top K references based on score for MMLU/hotpotQA (func="filter" or "raw").')
+
+    # --- Parse arguments ---
+    args = parser.parse_args()
+
+    # --- Execute the chosen command ---
+    if args.command == 'list2pair':
+        list2pair(args.input_file, args.output_file, 'knowledge_card', line_mode=True)
+
+    elif args.command == 'process_by_line':
+        id2map_dict = None
+        if args.map_file and args.map_func:
+            id2map_dict = read_map(args.map_file, args.map_func)
+            if id2map_dict is None:
+                print("Failed to read map file. Exiting.")
+                exit(1) # Exit if map reading failed
+
+        process_by_line(args.input_file, args.output_file, args.func, id2map_dict, args.src_key, args.tgt_key)
+
+    elif args.command == 'merge_files':
+        merge_key_pairs = None
+        if args.type == 'merge' or args.type == 'reference_extend':
+             if not args.index_key:
+                  print(f"Error: '{args.type}' type requires --index_key.")
+                  exit(1)
+             if args.type == 'merge':
+                 if not args.merge_key:
+                     print(f"Error: '{args.type}' type requires --merge_key (e.g., --merge_key src=tgt).")
+                     exit(1)
+                 merge_key_pairs = {}
+                 for pair_str in args.merge_key:
+                     if '=' in pair_str:
+                         src, tgt = pair_str.split('=', 1)
+                         merge_key_pairs[src] = tgt
+                     else:
+                         print(f"Error: Invalid --merge_key format '{pair_str}'. Use SRC_KEY=TGT_KEY.")
+                         exit(1)
+
+
+        merge_file(args.input_files, args.output_file, args.type, merge_key_pairs, args.index_key, args.have_choice)
+
+    elif args.command == 'pair_merge':
+        pair_merge(args.input_file, args.output_file, args.func, dataset='hotpotQA', top_k=args.top_k)
+
+    else:
+        # This else block should technically not be reached because subparsers handle unknown commands,
+        # but included for completeness.
+        print("Error: No command specified. Use -h for help.")
+
+    print("Script execution finished.")
