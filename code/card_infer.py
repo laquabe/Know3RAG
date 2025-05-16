@@ -2,36 +2,17 @@ import transformers
 import json
 from tqdm import tqdm
 from utils import read_data
+import argparse
+import os
 
-max_new_tokens = 128    # default 100
-task = 'question'
-card_name = 'knowledge-card-yago'   # knowledge-card-1btokens, knowledge-card-atomic, knowledge-card-reddit, knowledge-card-wikidata, knowledge-card-wikipedia, knowledge-card-yago
-card_path = '/data/xkliu/LLMs/Knowledge_Card-main/cards/{}'.format(card_name)
-card_device = 7
-k = 1
-
-card = transformers.pipeline('text-generation', model=card_path, device = card_device, num_return_sequences=k, do_sample=True, max_new_tokens = max_new_tokens)
-
-def process_line(data, output_f):
+def process_line(card, task, data, output_f):
     for line in tqdm(data):
         line = json.loads(line.strip())
-        if task == 'entity_old':
-            for ent in line['query_entity'].values():
-                prompt = '{}, {}'.format(ent['entity'], ent['description'])
-                knowl = card(prompt)
-                knowl = [obj["generated_text"][len(prompt)+1:] for obj in knowl]
-                line['generate'] = knowl
-                output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
-            continue
-        elif task == 'entity':
+        if task == 'entity':
             prompt = 'Knowledge:'
             for ent in line['query_entity'].values():
                 prompt += ' {}, {}.'.format(ent['entity'], ent['description'])
             prompt += '\nQuestion: {}'.format(line['question'])
-        elif task == 'pseduo':
-            prompt = line['pseudo_doc']
-        elif task == 'summary':
-            prompt = line['summary']
         elif task == 'choice':
             choice_list = ['A', 'B', 'C', 'D']
             for choice in choice_list:
@@ -59,48 +40,66 @@ def process_line(data, output_f):
         # exit()
 
 if __name__ == '__main__':
-    import os
-    from mmlu_categories import subcategories, categories
+    parser = argparse.ArgumentParser(description='Knowledge card generation')
 
-    # for split_num in range(4):
-    dataset_path = 'datasets/PopQA'
-    input_dir = 'turn1_question_kg'
+    # Define arguments
+    parser.add_argument('--max_new_tokens', type=int, default=128,
+                        help='Maximum number of new tokens to generate per prompt.')
+    parser.add_argument('--task', type=str, default='question',
+                        choices=['question', 'entity_old', 'entity', 'pseduo', 'summary', 'choice'],
+                        help='Task type controlling the prompt format. '
+                             'Choices: question, entity_old, entity, pseduo, summary, choice.')
+    parser.add_argument('--model_path', type=str, required=True,
+                        help='Path to the model.')
+    parser.add_argument('--device', type=int, default=7,
+                        help='CUDA device ID for model placement (-1 for CPU).')
+    parser.add_argument('--k', type=int, default=1,
+                        help='Number of sequences to return (num_return_sequences).')
+    parser.add_argument('--input_file', type=str, required=True,
+                        help='Path to the input JSONL file')
+    parser.add_argument('--output_file', type=str, required=True,
+                        help='Path for the output JSONL file ')
 
-    save_dir = os.path.join('knowledge_card_result', 'PopQA', task, "test", card_name)
-    if not os.path.exists(save_dir):
-        os.mkdir(save_dir)
+    args = parser.parse_args()
 
-    input_file_name = os.path.join(dataset_path, input_dir + '.json')
-    input_file = open(input_file_name)
+    # Ensure output directory exists
+    output_dir = os.path.dirname(args.output_file)
+    if output_dir: # Check if output_file contains a directory path
+        os.makedirs(output_dir, exist_ok=True)
 
-    output_file_name = os.path.join(save_dir, "{}_kc.json".format(input_dir))
-    output_file = open(output_file_name, 'w')
-    process_line(input_file, output_file)
-    '''MMLU'''
+    # Load the knowledge card model pipeline
+    try:
+        print(f"Loading model from: {args.model_path} on device: {args.device}")
+        card_pipeline = transformers.pipeline(
+            'text-generation',
+            model=args.model_path,
+            device=args.device,
+            num_return_sequences=args.k,
+            do_sample=True, # Using do_sample=True as in original code
+            max_new_tokens=args.max_new_tokens,
+            trust_remote_code=True # Add if loading custom models
+        )
+        print("Model loaded successfully.")
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        exit(1) # Exit if model fails to load
 
-    # dataset_path = 'datasets/MMLU/data'
-    # input_dir = 'query_el_raw' 
-    # MMLU_categories = ["STEM", "humanities", "social sciences", "other (business, health, misc.)"]  # "STEM", "humanities", "social sciences", "other (business, health, misc.)"
-    # subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(dataset_path, "dev")) if "_dev.json" in f])
+    # Open input and output files
+    try:
+        with open(args.input_file, 'r', encoding='utf-8') as input_file, \
+             open(args.output_file, 'w', encoding='utf-8') as output_file:
 
-    # # mkdir save dir
-    # save_dir = os.path.join('knowledge_card_result', 'MMLU', task, "dev", card_name)
-    # if not os.path.exists(save_dir):
-    #     os.mkdir(save_dir)
-    # # read category
-    # train_categories = []
-    # for c in MMLU_categories:
-    #     train_categories.extend(categories[c])
+            print(f"Processing data from '{args.input_file}' and writing to '{args.output_file}'...")
+            process_line(card_pipeline, args.task, input_file, output_file)
+            print("Processing complete.")
 
-    # for sub in subjects:
-    #     if len(set(subcategories[sub]) & set(train_categories)) == 0:
-    #         continue
-    #     print(sub)
-    #     input_file_name = os.path.join(dataset_path, "dev", input_dir , sub + "_dev.json")
-    #     input_file = open(input_file_name)
+    except FileNotFoundError as e:
+        print(f"Error: Input or output file not found: {e}")
+        exit(1)
+    except Exception as e:
+        print(f"An unexpected error occurred during processing: {e}")
+        exit(1)
 
-    #     output_file_name = os.path.join(save_dir, "{}_kc.json".format(sub))
-    #     output_file = open(output_file_name, 'w')
-    #     process_line(input_file, output_file)
+
     
     
