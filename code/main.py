@@ -6,81 +6,9 @@ from tqdm import tqdm
 import argparse
 import re
 import copy
-'''
-Here’s a revised version of your prompt, tailored to be simpler and more intuitive for the LLM to follow:
 
----
-
-I have a task that requires your help in extracting relationships between predefined entities in a given text. You will be provided with a list of specific entities, and your job is to extract triples that represent relationships between these entities. Each triple should include a **subject**, **predicate**, and **object** taken directly from the text, where the **subject** and **object** must be from the predefined list of entities. If no meaningful relationships are found between the entities, return **None**.
-
-### Hint:
-- The **subject** and **object** should **only** come from the list of predefined entities.
-- Extract the subject, predicate, and object exactly as they appear in the text.
-- If no valid relationships are found between the provided entities, return **None**.
-- Output the extracted triples in the format:  
-  **Extracted triples: [list of triples]**.
-
-Here’s an example with a multi-round dialog to guide you:
-
-**User:**  
-**Input Text:**  
-"Albert Einstein was born in Ulm, Germany in 1879."  
-**Entities Provided:**  
-["Albert Einstein", "Ulm", "Germany"]
-
-**Assistant:**  
-**Extracted triples:**  
-[{"subject": "Albert Einstein", "predicate": "was born in", "object": "Ulm"}, {"subject": "Albert Einstein", "predicate": "was born in", "object": "Germany"}]  
-
-**User:**  
-**Input Text:**  
-"She is a member of the organization."  
-**Entities Provided:**  
-["the organization"]
-
-**Assistant:**  
-**Extracted triples:**  
-None  
-
-Now, please extract the relationships between the provided entities in the following text:
-
-**Input Text:**  
-{line['passages']}  
-**Entities Provided:**  
-{get_entity_list(line)}
-
-**Extracted triples:**  
-
----
-
-This version introduces the task in a clearer, more direct way, with an example that aligns with the multi-round dialog format. It also specifies the output format and simplifies the instructions. Would you like any further changes?
-'''
 def get_entity_list(line:dict):
     return list(line['query_entity'].keys())
-'''
-def prompt_fomular_triple_extraction(line:dict, src_key='passages', ent_key='passage_entity'):
-    system_prompt = 'I have a task that requires your help in extracting relationships between predefined entities in a given text. You will be provided with a list of specific entities, and your job is to extract triples that represent relationships between these entities. Each triple should include a subject, predicate, and object taken directly from the text, where the subject and object must be from the predefined list of entities. If no meaningful relationships are found between the entities, return None.\n'
-    system_prompt += 'Hint:\n'
-    system_prompt += '- The subject and object should only come from the list of predefined entities.\n'
-    system_prompt += '- Extract the subject, predicate, and object exactly as they appear in the text.\n'
-    system_prompt += '- If no valid relationships are found between the provided entities, return None.\n'
-    system_prompt += '- Output the extracted triples in the format: Extracted triples: [list of triples].\n'
-    user_0 = 'Please extract the triples in the text. If no hint is matched, output None. the output format is Extracted triples: [list of triples].\n'
-    user_0 += 'Text: Albert Einstein was born in Ulm, Germany in 1879.\n'
-    user_0 += 'Entities: Albert Einstein, Ulm, Germany\n'
-    assist_0 = '[{"subject": "Albert Einstein", "predicate": "was born in", "object": "Ulm"}, {"subject": "Albert Einstein", "predicate": "was born in", "object": "Germany"}]'
-    user_1 = 'Please extract the triples in the text. If no hint is matched, output None. the output format is Extracted triples: [list of triples].\n'
-    user_1 += 'Text: She is a member of the organization.\n'
-    user_1 += 'Entities: the organization\n'
-    assist_1 = 'None\n'
-    user_2 = 'Please extract the triples in the text. If no hint is matched, output None. the output format is Extracted triples: [list of triples].\n'
-    user_2 += 'Text: {}\n'.format(line[src_key])
-    user_2 += 'Entities:'
-    for ent in line[ent_key].keys():
-        user_2 += ' {},'.format(ent)
-    user_2.rstrip(',')
-    user_2 += '\n'
-    '''
 
 def prompt_fomular_triple_extraction(line: dict, src_key='passages', ent_key='passage_entity'):
     system_prompt = 'I have a task to extract relationships between entities from a given text. '
