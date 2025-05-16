@@ -1,31 +1,23 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES']='0'
+# os.environ['CUDA_VISIBLE_DEVICES']='0'
 import requests
 import json
 from tqdm import tqdm
 from collections import Counter
 import copy
+import argparse
+from sentence_transformers import SentenceTransformer, util
+import torch
+import spacy  # version 3.5
+
+# nlp = spacy.load("en_core_web_md")
+# nlp.add_pipe("entityLinker", last=True)
+# sent_model = SentenceTransformer('/data/xkliu/hf_models/all-mpnet-base-v2')
 
 def most_frequent_elements_sorted(lst):
     counts = Counter(lst)
     sorted_elements = sorted(counts.items(), key=lambda x: (-x[1], lst.index(x[0])))
     return [element for element, count in sorted_elements]
-
-mapping_flag = True
-el_flag = mapping_flag
-re_flag = mapping_flag
-
-if el_flag:
-    import spacy  # version 3.5
-    # initialize language model
-    nlp = spacy.load("en_core_web_md")
-    # add pipeline (declared through entry_points in setup.py)
-    nlp.add_pipe("entityLinker", last=True)
-
-if re_flag:
-    from sentence_transformers import SentenceTransformer, util
-    import torch
-    sent_model = SentenceTransformer('/data/xkliu/hf_models/all-mpnet-base-v2')
 
 def read_KG_relation(relation_file_name):
     r_dict = {}
@@ -53,8 +45,7 @@ def read_KG_relation(relation_file_name):
 
     return r_dict, r_name_dict, tmp2wiki, r_des_embedding
 
-if re_flag:
-    r_dict, r_name_dict, tmp2wiki, r_des_embedding = read_KG_relation('datasets/relation.json')
+# r_dict, r_name_dict, tmp2wiki, r_des_embedding = read_KG_relation('datasets/relation.json')
 
 def read_relation_template(template_file_name):
     template_info = []
@@ -69,9 +60,8 @@ def read_relation_template(template_file_name):
 
     return template_info, template_dict
 
-if re_flag:
-    template_info, template_dict = read_relation_template('datasets/relation_template.json')
-    template_sentence_info, template_sentence_dict = read_relation_template('datasets/relation_sentence_template.json')
+# template_info, template_dict = read_relation_template('datasets/relation_template.json')
+# template_sentence_info, template_sentence_dict = read_relation_template('datasets/relation_sentence_template.json')
 
 def read_map_dict(file_name):
     info_dict = {}
@@ -307,12 +297,8 @@ def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key, e
                     line[tgt_key] = []
                     output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
                     continue
-                if el_flag:
-                    entity_map_dict = entity_mapping_for_line(line[triple_key], line[entity_key])
-                    # print(json.dumps(entity_map_dict))
-                if re_flag:
-                    relation_map_dict = relation_mapping_for_line(line[triple_key])
-                    # print(json.dumps(relation_map_dict))
+                entity_map_dict = entity_mapping_for_line(line[triple_key], line[entity_key])
+                relation_map_dict = relation_mapping_for_line(line[triple_key])
                 triple_id_list = triple_mapping(line[triple_key], entity_map_dict, relation_map_dict)
                 line[tgt_key] = triple_id_list
                 output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
@@ -338,7 +324,7 @@ def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key, e
                 for t_id in tail_set:
                     if t_id in head_set:
                         continue
-                    t_info = copy.deepcopy(tail_dict[t_id])
+                    t_info = copy.deepcopy(tail_map_dict[t_id])
                     t_info["id"] = t_info.pop("wiki_id")
                     t_info["description"] = t_info.pop("descriptions")
                     t_info["entity"] = t_info.pop("labels")
@@ -349,42 +335,169 @@ def process_by_line(input_file_path, output_file_path, func, src_key, tgt_key, e
                 output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
 
 if __name__ == '__main__':
-    func_name = 'entity_map'
-    input_file_path = '/data/xkliu/LLMs/DocFixQA/reference/PopQA/test/gpt4omini_turn1_triple.json'
-    output_file_path = '/data/xkliu/LLMs/DocFixQA/reference/PopQA/test/gpt4omini_turn1_triple_id.json'
-    map_file_path = '/data/xkliu/LLMs/DocFixQA/datasets/PopQA/turn1_tail_map_full.json'
-    if func_name == 'expand_entity':
-        tail_dict = read_map_dict(map_file_path)
+    # func_name = 'entity_map'
+    # input_file_path = '/data/xkliu/LLMs/DocFixQA/reference/PopQA/test/gpt4omini_turn1_triple.json'
+    # output_file_path = '/data/xkliu/LLMs/DocFixQA/reference/PopQA/test/gpt4omini_turn1_triple_id.json'
+    # map_file_path = '/data/xkliu/LLMs/DocFixQA/datasets/PopQA/turn1_tail_map_full.json'
+    # if func_name == 'expand_entity':
+    #     tail_dict = read_map_dict(map_file_path)
+    # else:
+    #     tail_dict = None
+    # process_by_line(input_file_path, output_file_path, func=func_name, src_key='passages', tgt_key='llm_triple_id', ner_flag=False,
+    #                 entity_key='passage_entity', triple_key='llm_triple', tail_map_dict=tail_dict)
+
+    parser = argparse.ArgumentParser(description='Script for KG process.')
+    import sys
+    # --- Global Arguments ---
+    parser.add_argument('--device', type=int, default=0,
+                        help='CUDA device ID for model placement (-1 for CPU). Sets CUDA_VISIBLE_DEVICES.')
+
+    # --- Model and Data Paths (Required as models are loaded unconditionally) ---
+    parser.add_argument('--spacy_model', type=str, default='en_core_web_md',
+                        help='spaCy model name or path for entity linking.')
+    parser.add_argument('--sbert_model', type=str, required=True,
+                        help='Path to the Sentence-BERT model for relation mapping.')
+    parser.add_argument('--relation_file', type=str, required=True,
+                        help='Path to the KG relation definition file.')
+    parser.add_argument('--relation_template_file', type=str, required=True,
+                        help='Path to the relation template file.')
+    parser.add_argument('--relation_sentence_template_file', type=str, required=True,
+                        help='Path to the relation sentence template file.')
+
+    # --- Processing Arguments ---
+    parser.add_argument('--command', type=str, required=True,
+                        choices=['el', 'entity_map', 'convert_triple', 'expand_entity'],
+                        help='Processing command to execute: el, entity_map, convert_triple, or expand_entity.')
+    parser.add_argument('--input_file', type=str, required=True,
+                        help='Path to the input JSONL file.')
+    parser.add_argument('--output_file', type=str, required=True,
+                        help='Path for the output JSONL file.')
+
+    # --- Command-Specific Arguments (Optional or required based on command) ---
+    parser.add_argument('--src_key', type=str,
+                        help='Source key in the input JSON line (e.g., "passages" for "el"). Required by "el".')
+    parser.add_argument('--tgt_key', type=str,
+                        help='Target key in the output JSON line (e.g., "passage_entity" for "el", "llm_triple_id" for "entity_map", "pred_relation_rank" for "convert_triple"). Required by "el", "entity_map", "convert_triple".')
+    parser.add_argument('--entity_key', type=str, default='passage_entity',
+                        help='Key for entity dictionary in input line (default: passage_entity). Used by "entity_map", "expand_entity".')
+    parser.add_argument('--triple_key', type=str, default='llm_triple',
+                        help='Key for textual triple list in input line (default: llm_triple). Used by "entity_map".')
+    parser.add_argument('--question_type', type=str, default='open', choices=['open', 'choice'],
+                        help='Type of question format for "el" command (default: open).')
+    parser.add_argument('--ner_flag', action='store_true',
+                        help='if the el result filter by ner. query entity is set True, while passage entity is set False.')
+    parser.add_argument('--map_file', type=str,
+                        help='Path to a map file (e.g., tail entity map). Required by "expand_entity".')
+
+    # Arguments for 'convert_triple'
+    parser.add_argument('--topk', type=int, default=10,
+                        help='Top K similar relation templates to consider for "convert_triple".')
+    parser.add_argument('--count_num', type=int, default=3,
+                        help='Number of top relation IDs to keep after frequency sorting for "convert_triple".')
+
+
+    # --- Parse arguments ---
+    args = parser.parse_args()
+
+    # --- Set CUDA device environment variable ---
+    if args.device >= 0:
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(args.device)
+        print(f"Setting CUDA_VISIBLE_DEVICES = {args.device}")
     else:
-        tail_dict = None
-    process_by_line(input_file_path, output_file_path, func=func_name, src_key='passages', tgt_key='llm_triple_id', ner_flag=False,
-                    entity_key='passage_entity', triple_key='llm_triple', tail_map_dict=tail_dict)
-    exit()
-    
-    '''MMLU'''
+        if 'CUDA_VISIBLE_DEVICES' in os.environ:
+            del os.environ['CUDA_VISIBLE_DEVICES']
+        print("Running on CPU.")
 
-    dataset_path = '/data/xkliu/LLMs/DocFixQA/datasets/MMLU/data'
-    input_path = '/data/xkliu/LLMs/DocFixQA/reference/MMLU'
-    output_path = '/data/xkliu/LLMs/DocFixQA/reference/MMLU'
-    mmlu_input = 'triple_llama'
-    exp_name = 'triple_id_llama'
+    # --- Load Global Resources (Unconditional based on simplified logic) ---
+    # Import libraries after setting CUDA_VISIBLE_DEVICES
+    try:
+        import spacy
+        nlp = spacy.load(args.spacy_model)
+        if "entityLinker" not in nlp.pipe_names:
+            try:
+                nlp.add_pipe("entityLinker", last=True)
+                print("Added entityLinker pipeline.")
+            except Exception as e:
+                 print(f"Warning: Could not add entityLinker pipeline: {e}. spaCy EL might be limited.")
+        print(f"spaCy model '{args.spacy_model}' loaded.")
+    except ImportError:
+        print("Error: spacy library not found. Install it.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error loading spaCy model: {e}")
+        sys.exit(1)
 
-    #load src dir
-    subjects = sorted([f.split("_dev.json")[0] for f in os.listdir(os.path.join(dataset_path, "dev")) if "_dev.json" in f])
+    try:
+        from sentence_transformers import SentenceTransformer, util
+        import torch
+        sent_model = SentenceTransformer(args.sbert_model)
+        print(f"Sentence-BERT model '{args.sbert_model}' loaded.")
+    except ImportError:
+        print("Error: sentence-transformers or torch library not found. Install them.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error loading Sentence-BERT model: {e}")
+        sys.exit(1)
 
-    # mkdir save dir
-    save_dir = os.path.join(output_path, 'dev', exp_name)
-    if not os.path.exists(save_dir):
-        os.mkdir(save_dir)
+    # Load relation data and templates
+    r_dict, r_name_dict, tmp2wiki, r_des_embedding = read_KG_relation(args.relation_file)
+    if r_dict is None:
+        print("Error: Failed to load KG relation data.")
+        sys.exit(1)
 
-    for sub in subjects:
-        print(sub)
-        # if sub != 'high_school_european_history':
-        #     continue
+    template_info, template_dict = read_relation_template(args.relation_template_file)
+    if template_info is None:
+        print("Error: Failed to load relation templates.")
+        sys.exit(1)
 
-        input_file_name = os.path.join(input_path, 'dev', mmlu_input, sub + "_dev.json")
+    template_sentence_info, template_sentence_dict = read_relation_template(args.relation_sentence_template_file)
+    if template_sentence_info is None:
+        print("Error: Failed to load relation sentence templates.")
+        sys.exit(1)
 
-        output_file_name = os.path.join(save_dir, "{}_dev.json".format(sub))
 
-        process_by_line(input_file_name, output_file_name, func='entity_map', src_key='passages', tgt_key='llm_triple_id', 
-                        entity_key='passage_entity', triple_key='llm_triple', question_type=exp_name, ner_flag=False)
+    # --- Load map file if required by the command ---
+    if args.command == 'expand_entity':
+        if not args.map_file:
+            print("Error: 'expand_entity' command requires --map_file.")
+            sys.exit(1)
+        print(f"Reading map file for expand_entity from: {args.map_file}")
+        tail_dict_from_map = read_map_dict(args.map_file)
+        if tail_dict_from_map is None:
+            print("Error: Failed to read map file.")
+            sys.exit(1)
+
+
+    # --- Validate arguments based on command ---
+    if args.command == 'el':
+        if not args.src_key or not args.tgt_key:
+            print("Error: 'el' command requires --src_key and --tgt_key.")
+            sys.exit(1)
+    elif args.command == 'entity_map':
+        if not args.tgt_key:
+            print("Error: 'entity_map' command requires --tgt_key.")
+            sys.exit(1)
+    elif args.command == 'convert_triple':
+        if not args.tgt_key:
+            print("Error: 'convert_triple' command requires --tgt_key.")
+            sys.exit(1)
+    # 'expand_entity' map_file requirement checked above. entity_key has default.
+
+
+    # --- Execute the main processing function ---
+    process_by_line(
+        input_file_path=args.input_file,
+        output_file_path=args.output_file,
+        func_name=args.command, # Use the command as the function name
+        src_key=args.src_key,
+        tgt_key=args.tgt_key,
+        entity_key=args.entity_key,
+        triple_key=args.triple_key,
+        question_type=args.question_type,
+        ner_flag=args.ner_flag,
+        tail_map_dict_loaded=tail_dict_from_map, # Pass the loaded map if any
+        topk=args.topk,
+        count_num=args.count_num
+    )
+
+    print("Script execution finished.")
