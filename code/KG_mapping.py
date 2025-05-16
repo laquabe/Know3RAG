@@ -78,7 +78,6 @@ def query_entity(entity_id):
     response = requests.get(url)
     data = response.json()
 
-    # 打印实体的标签和描述
     entity_data = data['entities'][entity_id]
 
 

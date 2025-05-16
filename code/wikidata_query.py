@@ -19,8 +19,6 @@ def query_entity(entity_id):
         return info_dict
     
     data = response.json()
-
-    # 打印实体的标签和描述
     try:
         entity_data = data['entities'][entity_id]
     except:
