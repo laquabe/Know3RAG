@@ -1,0 +1,8 @@
+I have a list of open-ended questions, and I\'d like you to write a reference paragraph for each question. These paragraphs should provide sufficient background, key concepts, or context to guide the next person in answering the question effectively. You do not need to provide an answer directly, just enough information to help the next person frame their answer concisely and accurately.
+
+To make your reference passages more accurate, I\'m going to provide you with some entities inside the question that you can refer to them, but they\'re not necessarily accurate.
+Question: {Question}
+
+Related Entities:{Entities}
+
+You should just output "[reference_paragraph]", where the [reference_paragraph] is the reference you write.

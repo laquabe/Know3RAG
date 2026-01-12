@@ -1,0 +1,5 @@
+You will be given references, a question, and an answer. The answer may be incomplete or incorrect. Identify the most critical missing or incorrect information in the references and the answer. Formulate one most important new question that will most effectively help retrieve the necessary information to answer the original question.
+Reference :{Reference}
+Question: {Question}
+Answer: {Answer}
+Please directly output the new question:

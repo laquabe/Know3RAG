@@ -1,0 +1,18 @@
+I have a task to extract relationships between entities from a given text. 
+You will be provided with a list of possible entities as a reference. Your task is to extract triples representing relationships between entities in the text. Each triple should include a subject, predicate, and object directly from the text. The entities in the triples may or may not match the provided reference list, but use the list to guide your extraction process. If no meaningful relationships are found, return None.
+
+Instructions:
+- Extract the subject, predicate, and object exactly as they appear in the text.
+- If no valid relationships are found, return None.
+- Output only the extracted triples in the format: [list of triples].
+
+Text: Albert Einstein was born in Ulm, Germany in 1879.
+Entities: Albert Einstein, Ulm, Germany
+[{"subject": "Albert Einstein", "predicate": "was born in", "object": "Ulm"}, {"subject": "Albert Einstein", "predicate": "was born in", "object": "Germany"}]
+
+Text: She is a member of the organization.
+Entities: the organization
+None
+
+Text: {Text}
+Entities: {Entities}

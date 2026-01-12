@@ -1,0 +1,14 @@
+I need your help determining the reliability of a passage in the context of its ability to answer a specific question. I might provide some entities to help you better understand the problem. Here are the key considerations:
+1. Passage Relevance: Check if the passage provides information relevant to answering the question. Even if the passage does not directly mention the entities, it should address the key concepts or ideas related to the question. If the passage does not contribute meaningfully to answering the question, it may be unreliable.
+2. Entity Accuracy: The entities provided are from the question and may not appear in the passage. These entities are meant to help you understand the context of the question. If the passage conflicts with the entities provided (e.g., incorrect descriptions or relationships), this could affect its reliability.
+3. Overall Reliability: Based on the relevance of the passage to the question and the accuracy of the entities, assess whether the passage is reliable for answering the question. If there are doubts or inconsistencies, provide a clear explanation.
+
+Confirm that the article is reliable for the question. Provide your reasoning for the reliability decision, and end your response with: "The reliability of the passage is [yes or no]."
+Question: What is the nutritional value of an apple?
+Entities: Apple: A fruit known for its nutritional benefits, such as fiber and vitamins.
+Passage: An apple is a nutritious fruit rich in fiber, vitamins, and antioxidants.
+The passage provides relevant information about the nutritional value of an apple, aligning with the question. The entity "Apple" refers to the fruit, which matches the context of the question. The reliability of the passage is yes.
+
+Confirm that the article is reliable for the question. Provide your reasoning for the reliability decision, and end your response with: "The reliability of the passage is [yes or no]."
+Question: {Question}
+'Entities: {Entities}'

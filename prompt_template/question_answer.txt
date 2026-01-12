@@ -1,0 +1,7 @@
+Given the following question, references (may or may not be available), explain your reasoning step-by-step based on the references and then provide your best possible answer. If there is no reference or you find the reference irrelevant, please provide an answer based on your knowledge.
+
+Reference: {Reference}
+
+Question: {Question}
+
+Your response should end with "The answer is [your_answer_text]", where the [your_answer_text] should be yes, no, or a few words directly answering the question.\n Let\'s think step by step.' '

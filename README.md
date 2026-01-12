@@ -12,6 +12,10 @@ For KGE model, please see [kge](https://github.com/uma-pi1/kge) to download the 
 
 ## Datasets
 See `datasets`
+
+## Prompt
+See `prompt_template`
+
 ## Code
 *The code is a mess and we'll simplify it in a few months.*
 
