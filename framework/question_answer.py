@@ -5,7 +5,7 @@ Wraps LLM calls for answering questions.
 from typing import List
 
 from config import PipelineConfig
-from utils import BaseLLMClient, answer_phrase
+from utils import BaseLLMClient, extract_answer_by_dataset
 import prompt.question_answer_qa as qa_prompt_mod
 
 
@@ -13,6 +13,8 @@ class QuestionAnswerer:
     """
     Generates answers to questions (single and multi-turn).
     """
+
+    DEFAULT_ANSWER_KEY = 'llm_response'
 
     def __init__(
         self,
@@ -28,12 +30,12 @@ class QuestionAnswerer:
         cot_prompt: str = None,
         output_reason: bool = True,
         add_ref: bool = True,
-        answer_key: str = 'llm_response',
+        answer_key: str = DEFAULT_ANSWER_KEY,
     ) -> dict:
         """
         Generate an answer for the question in *line* and store it under
         *answer_key*.  Works for hotpotQA, 2wikimultihopQA, PopQA, MMLU,
-        Temporal_QA.
+        Temporal_QA.  Also extracts the parsed answer into line['answer'].
         """
         messages = qa_prompt_mod.build_prompt(
             line,
@@ -44,6 +46,8 @@ class QuestionAnswerer:
         )
         response = self.llm.call(messages)
         line[answer_key] = response
+        pred, _ = self.extract_answer(line, answer_key=answer_key)
+        line['answer'] = pred
         return line
 
     def answer_batch(
@@ -52,9 +56,9 @@ class QuestionAnswerer:
         cot_prompt: str = None,
         output_reason: bool = True,
         add_ref: bool = True,
-        answer_key: str = 'llm_response',
+        answer_key: str = DEFAULT_ANSWER_KEY,
     ) -> List[dict]:
-        """Batch version of answer()."""
+        """Batch version of answer(). Also extracts parsed answers into line['answer']."""
         batch_messages = [
             qa_prompt_mod.build_prompt(
                 line,
@@ -68,12 +72,16 @@ class QuestionAnswerer:
         responses = self.llm.call_batch(batch_messages)
         for line, resp in zip(lines, responses):
             line[answer_key] = resp
+            pred, _ = self.extract_answer(line, answer_key=answer_key)
+            line['answer'] = pred
         return lines
 
-    @staticmethod
-    def extract_answer(line: dict, answer_key: str = 'llm_response'):
-        """Parse the LLM response to extract a structured answer / choice."""
-        pred, success = answer_phrase(line.get(answer_key, ''))
+    def extract_answer(self, line: dict, answer_key: str = DEFAULT_ANSWER_KEY):
+        """Parse the LLM response into a dataset-appropriate answer format."""
+        pred, success = extract_answer_by_dataset(
+            line.get(answer_key, ''),
+            dataset=self.cfg.dataset_name,
+        )
         return pred, success
 
 
@@ -91,7 +99,7 @@ def main():
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--dataset", default=None)
-    parser.add_argument("--answer-key", default="llm_response",
+    parser.add_argument("--answer-key", default=QuestionAnswerer.DEFAULT_ANSWER_KEY,
                         help="Output key for generated answers")
     parser.add_argument("--no-ref", action="store_true",
                         help="Answer without references (baseline)")

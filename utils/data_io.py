@@ -117,49 +117,133 @@ def local_check_str(response: str) -> bool:
     return 'yes' in ans
 
 
-def answer_phrase(pred: str) -> Tuple[Optional[str], bool]:
+ANSWER_PREFIXES = [
+    "the best answer is",
+    "best answer is",
+    "the answer is",
+    "answer is",
+    "final answer:",
+    "final answer is",
+    "answer:",
+]
+
+
+def _normalize_whitespace(text: str) -> str:
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def _strip_wrapping(text: str) -> str:
+    text = _normalize_whitespace(text)
+    if not text:
+        return text
+
+    text = text.strip(" \t\n\r\"'`“”‘’*[](){}")
+    text = re.sub(r'[\s\.;,，。:：!！?？]+$', '', text)
+    return text.strip(" \t\n\r\"'`“”‘’*[](){}")
+
+
+def _extract_suffix_by_prefixes(text: str, prefixes: List[str]) -> Optional[str]:
+    lower_text = text.lower()
+    best_suffix = None
+    best_pos = -1
+    for prefix in prefixes:
+        idx = lower_text.rfind(prefix.lower())
+        if idx != -1 and idx >= best_pos:
+            suffix = text[idx + len(prefix):].strip()
+            if suffix:
+                best_suffix = suffix
+                best_pos = idx
+    return best_suffix
+
+
+def _extract_short_tail_answer(text: str) -> Optional[str]:
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    for line in reversed(lines[-3:]):
+        candidate = _strip_wrapping(line)
+        if not candidate:
+            continue
+        if len(candidate.split()) <= 8 and len(candidate) <= 80:
+            if not re.search(r'\b(because|therefore|reason|step by step|reference|question)\b', candidate, re.IGNORECASE):
+                return candidate
+    return None
+
+
+def extract_choice_answer(pred: str) -> Tuple[Optional[str], bool]:
     """
-    Parses LLM multiple-choice answer, looking for a letter (A/B/C/D).
+    Parses a multiple-choice answer, looking for a final letter (A/B/C/D).
     Returns (choice_letter_or_None, parsed_cleanly_flag).
     """
-    possible_prefix = [
-        "The best answer is ",
-        "the best answer is ",
-        "answer:",
-        "answer is:",
-        "answer is ",
-    ]
-    error_flag = True
-    pred_ans = pred
+    pred = pred or ''
+    suffix = _extract_suffix_by_prefixes(pred, ANSWER_PREFIXES)
+    if suffix:
+        match = re.search(r'\b([ABCD])\b', suffix, re.IGNORECASE)
+        if match:
+            return match.group(1).lower(), True
 
-    for prefix in possible_prefix:
-        if prefix in pred.lower():
-            idx = pred.lower().rfind(prefix)
-            pred_ans = pred[idx + len(prefix):].strip()
-            if pred_ans:
-                error_flag = False
-                break
+    final_line = ''
+    lines = [ln.strip() for ln in pred.splitlines() if ln.strip()]
+    if lines:
+        final_line = lines[-1]
 
-    def _find_option(text: str, options=('a.', 'b.', 'c.', 'd.')):
-        positions = {}
-        for opt in options:
-            match = re.search(re.escape(opt), text)
-            if match:
-                positions[opt] = match.start()
-        if not positions:
-            return None
-        first = min(positions, key=positions.get)
-        return first[0]  # return letter only
+    for text in [final_line, pred]:
+        if not text:
+            continue
+        matches = re.findall(r'\b([ABCD])\b', text, re.IGNORECASE)
+        unique_matches = []
+        for m in matches:
+            m = m.lower()
+            if m not in unique_matches:
+                unique_matches.append(m)
+        if len(unique_matches) == 1:
+            return unique_matches[0], False
 
-    if error_flag:
-        pred_ans = pred.strip()
-        choice = _find_option(pred_ans.lower(), ('a.', 'b.', 'c.', 'd.'))
-        if choice is None:
-            choice = _find_option(pred_ans.lower(), ('a', 'b', 'c', 'd'))
-    else:
-        choice = _find_option(pred_ans.lower(), ('a', 'b', 'c', 'd'))
+    return None, False
 
-    return choice, not error_flag
+
+def extract_open_answer(pred: str) -> Tuple[Optional[str], bool]:
+    """Extracts an open-ended answer using prompt-aligned answer prefixes."""
+    pred = pred or ''
+    suffix = _extract_suffix_by_prefixes(pred, ANSWER_PREFIXES)
+    if suffix:
+        lines = [ln.strip() for ln in suffix.splitlines() if ln.strip()]
+        candidate = lines[0] if lines else suffix
+        candidate = _strip_wrapping(candidate)
+        if candidate:
+            return candidate, True
+
+    tail_answer = _extract_short_tail_answer(pred)
+    if tail_answer:
+        return tail_answer, False
+
+    cleaned = _strip_wrapping(pred)
+    return (cleaned or None), False
+
+
+def extract_temporal_answer(pred: str) -> Tuple[Optional[str], bool]:
+    """Extracts the answer field from Temporal_QA JSON-style output."""
+    pred = pred or ''
+    decoded, success = json_decode(pred)
+    if success and isinstance(decoded, dict):
+        answer = decoded.get('answer') or decoded.get('Answer')
+        if isinstance(answer, str):
+            answer = _strip_wrapping(answer)
+            if answer:
+                return answer, True
+    return extract_open_answer(pred)
+
+
+def extract_answer_by_dataset(pred: str, dataset: Optional[str] = None) -> Tuple[Optional[str], bool]:
+    """Dispatches answer extraction based on dataset type."""
+    if dataset == 'MMLU':
+        return extract_choice_answer(pred)
+    if dataset == 'Temporal_QA':
+        return extract_temporal_answer(pred)
+    return extract_open_answer(pred)
+
+
+def answer_phrase(pred: str) -> Tuple[Optional[str], bool]:
+    """Backward-compatible alias for multiple-choice answer extraction."""
+    return extract_choice_answer(pred)
 
 
 def score_feature(

@@ -2,7 +2,7 @@
 Main QA prompt.
 Source: prompt_fomular() in code/main.py (lines 319-391).
 """
-from typing import Dict, List, Union
+from typing import Dict, List
 
 
 def build_prompt(
@@ -11,15 +11,14 @@ def build_prompt(
     cot_prompt: str = None,
     output_reason: bool = True,
     add_ref: bool = True,
-) -> Union[List[Dict], str]:
+) -> List[Dict]:
     """
     Build the main question-answering prompt.
 
     dataset options: 'hotpotQA', '2wikimultihopQA', 'PopQA', 'MMLU', 'Temporal_QA'
 
-    - hotpotQA / 2wikimultihopQA / PopQA: returns OpenAI messages list
-    - MMLU: returns Llama-template string (requires cot_prompt prefix)
-    - Temporal_QA: returns plain string
+    Always returns OpenAI messages list format: [{"role": "user", "content": str}].
+    For MMLU, content includes Llama3 template tokens; cot_prompt defaults to '' if None.
     """
     if dataset in ['hotpotQA', '2wikimultihopQA', 'PopQA']:
         if add_ref:
@@ -77,7 +76,7 @@ def build_prompt(
         )
         content += "\nAnswer the following questions using the format and guidelines provided above.\n"
         content += "**Question:** {}\n**Response:**".format(line.get('Question', ''))
-        return content
+        return [{"role": "user", "content": content}]
 
     elif dataset == 'MMLU':
         content = cot_prompt or ''
@@ -132,6 +131,6 @@ def build_prompt(
                 line.get('Question', ''),
                 line.get('A', ''), line.get('B', ''), line.get('C', ''), line.get('D', '')
             )
-        return content
+        return [{"role": "user", "content": content}]
 
     raise ValueError("Unsupported dataset: {}".format(dataset))
