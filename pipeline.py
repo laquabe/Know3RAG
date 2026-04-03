@@ -39,7 +39,7 @@ class Know3RAGPipeline:
            b. Retrieve new passages
            c. Filter new passages
            d. Generate new turn answer
-      6. Judge final answer from all turns
+      6. Use the latest turn answer as final output
     """
 
     def __init__(self, config: Config):
@@ -118,7 +118,6 @@ class Know3RAGPipeline:
         # Stage 4 — Turn-0 answer
         line = self.qa.answer(line, answer_key='llm_response_0')
         line['llm_response'] = line['llm_response_0']
-        all_answer_keys = ['llm_response_0']
 
         # Stage 5 — Closed-loop refinement turns
         for turn in range(cfg.max_loop_turns):
@@ -170,11 +169,6 @@ class Know3RAGPipeline:
             ans_key = 'llm_response_{}'.format(turn + 1)
             line = self.qa.answer(line, answer_key=ans_key)
             line['llm_response'] = line[ans_key]
-            all_answer_keys.append(ans_key)
-
-        # Stage 6 — Judge final answer (if multiple turns)
-        if len(all_answer_keys) > 1:
-            line = self.qa.judge(line, answer_key_list=all_answer_keys, have_choice=have_choice)
 
         return line
 

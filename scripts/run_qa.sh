@@ -13,7 +13,6 @@ set -euo pipefail
 python framework/question_answer.py \
   --config "${CONFIG:-config.json}" \
   --input "$1" --output "$2" \
-  --step answer \
   --answer-key "${ANSWER_KEY:-llm_response}" \
   ${DATASET:+--dataset "$DATASET"} \
   "${@:3}"

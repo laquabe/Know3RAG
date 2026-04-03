@@ -6,7 +6,6 @@ from prompt.relevance_check_kg_local_check import build_prompt as kg_local_check
 from prompt.document_generation_reference_generate import build_prompt as reference_generate_prompt
 from prompt.query_enhance_decompose_question import build_prompt as decompose_question_prompt
 from prompt.query_enhance_selfask import build_prompt as selfask_prompt
-from prompt.question_answer_judge import build_prompt as judge_prompt
 from prompt.query_enhance_generate_question import build_prompt as generate_question_prompt
 from prompt.question_answer_qa import build_prompt as qa_prompt
 
@@ -16,7 +15,6 @@ __all__ = [
     "reference_generate_prompt",
     "decompose_question_prompt",
     "selfask_prompt",
-    "judge_prompt",
     "generate_question_prompt",
     "qa_prompt",
 ]
