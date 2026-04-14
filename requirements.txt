@@ -1,0 +1,12 @@
+aiohttp==3.9.5
+matplotlib==3.8.2
+numpy==2.2.5
+openai==1.78.1
+pandas==2.2.3
+Requests==2.32.3
+sentence_transformers==3.0.1
+spacy==3.7.5
+torch==2.1.1
+tqdm
+transformers==4.40.0
+ujson==5.10.0
