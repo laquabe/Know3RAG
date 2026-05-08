@@ -4,8 +4,14 @@ Supports both:
 1. triple extraction → entity/relation mapping → KGE scoring
 2. fast entity-pair extraction → KGE scoring
 """
+import os
 import re
+import sys
 from typing import Dict, List, Optional, Tuple
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from config import PipelineConfig
 from utils import (

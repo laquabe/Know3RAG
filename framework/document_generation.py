@@ -2,7 +2,13 @@
 Document generation framework module.
 Handles LLM-based reference generation, local retrieval, and knowledge card building.
 """
+import os
+import sys
 from typing import Dict, List, Optional
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from config import PipelineConfig
 from utils import BaseLLMClient, HybridRetriever

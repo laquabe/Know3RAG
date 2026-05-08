@@ -2,7 +2,13 @@
 Query enhancement framework module.
 Handles KG-based query enrichment, follow-up question generation, and self-ask.
 """
+import os
+import sys
 from typing import List, Optional
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from config import PipelineConfig
 from utils import BaseLLMClient, EntityLinker, KGEScorer, WikidataClient

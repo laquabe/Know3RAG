@@ -2,7 +2,13 @@
 Relevance check framework module.
 Combines LLM reliability filtering and KGE-based passage ranking.
 """
+import os
+import sys
 from typing import List, Optional
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from config import PipelineConfig
 from utils import BaseLLMClient, KGEScorer, local_check_str, score_feature
