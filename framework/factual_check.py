@@ -69,7 +69,62 @@ class FactualChecker:
             add_description=add_description,
             ner_filter=ner_filter,
         )
+        line[ent_key] = self.expand_repeated_mentions(text, line[ent_key])
         return line
+
+    @staticmethod
+    def expand_repeated_mentions(text: str, entity_dict: Dict[str, Dict]) -> Dict[str, Dict]:
+        """
+        Expand linked entities to all exact same mention occurrences in text.
+
+        Some EL engines only link one occurrence of a repeated mention. Fast
+        mode needs occurrence-level start/end offsets for sentence assignment,
+        so this copies the linked entity info to every uncovered exact mention.
+        Duplicate dictionary keys are suffixed as ``mention#N`` while the
+        original mention text is stored in ``info['mention']``.
+        """
+        if not text or not entity_dict:
+            return entity_dict
+
+        expanded: Dict[str, Dict] = {}
+        occupied: set[Tuple[int, int, str]] = set()
+        key_counts: Dict[str, int] = {}
+
+        def add_entry(base_key: str, info: Dict, start: int, end: int) -> None:
+            raw_mention = info.get('mention', base_key.split('#', 1)[0])
+            new_info = dict(info)
+            new_info['mention'] = raw_mention
+            new_info['start'] = start
+            new_info['end'] = end
+
+            count = key_counts.get(raw_mention, 0) + 1
+            key_counts[raw_mention] = count
+            out_key = raw_mention if count == 1 else f'{raw_mention}#{count}'
+            expanded[out_key] = new_info
+            occupied.add((start, end, raw_mention))
+
+        # Preserve existing linked occurrences first.
+        for key, info in entity_dict.items():
+            mention = info.get('mention', key.split('#', 1)[0])
+            start = info.get('start')
+            end = info.get('end')
+            if start is None or end is None:
+                expanded[key] = dict(info)
+                continue
+            add_entry(mention, info, start, end)
+
+        # Copy each linked mention to every identical uncovered text span.
+        for key, info in entity_dict.items():
+            mention = info.get('mention', key.split('#', 1)[0])
+            if not mention:
+                continue
+            for match in re.finditer(re.escape(mention), text):
+                start, end = match.start(), match.end()
+                if (start, end, mention) in occupied:
+                    continue
+                add_entry(mention, info, start, end)
+
+        return expanded
 
     # ------------------------------------------------------------------
     # Fast factual check helpers
@@ -110,7 +165,7 @@ class FactualChecker:
                 if start is None or end is None:
                     continue
                 if sent['start'] <= start and end <= sent['end']:
-                    sent_entities.append({'mention': mention, **info})
+                    sent_entities.append({**info, 'mention': info.get('mention', mention)})
             results.append({**sent, 'entities': sent_entities})
         return results
 

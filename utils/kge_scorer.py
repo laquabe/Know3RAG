@@ -183,21 +183,69 @@ class KGEScorer:
     ) -> List[Dict]:
         """
         Scores a list of (wiki_head_id, wiki_tail_id) pairs without requiring
-        an explicit relation. Internally uses the model's score_so() and keeps
-        the best latent relation score for each pair.
-        Returns list of {pair_id, pair_score, ref_score: [...]}.
+        an explicit relation. Both directions, (head, tail) and (tail, head),
+        are scored with score_so(); the direction with the lower feature
+        distance to its reference scores is kept.
+        Returns list of {pair_id, pair_score, ref_score, direction, scored_pair_id}.
         """
-        triples = [(h, '__NO_REL__', t) for h, t in entity_pairs]
-        triple_scores = self.score_triples(triples, use_relation=False)
+        if not entity_pairs:
+            return []
+
+        forward_triples = [(h, '__NO_REL__', t) for h, t in entity_pairs]
+        backward_triples = [(t, '__NO_REL__', h) for h, t in entity_pairs]
+        forward_scores = self.score_triples(forward_triples, use_relation=False)
+        backward_scores = self.score_triples(backward_triples, use_relation=False)
+
+        def index_scores(items: List[Dict]) -> Dict[Tuple[str, str], Dict]:
+            indexed: Dict[Tuple[str, str], Dict] = {}
+            for item in items:
+                triple_id = item.get('triple_id', [])
+                if len(triple_id) != 3:
+                    continue
+                indexed[(triple_id[0], triple_id[2])] = item
+            return indexed
+
+        def feature_distance(item: Optional[Dict]) -> float:
+            if not item:
+                return float('inf')
+            score = item.get('triple_score')
+            if score is None:
+                return float('inf')
+            ref_score = item.get('ref_score', [])
+            if ref_score:
+                return float(abs(score - np.average(ref_score)))
+            # User-facing fast factual scores are lower-is-better. If no
+            # reference distribution is available, fall back to raw score.
+            return float(score)
+
+        forward_by_pair = index_scores(forward_scores)
+        backward_by_pair = index_scores(backward_scores)
+
         result = []
-        for item in triple_scores:
-            triple_id = item.get('triple_id', [])
-            if len(triple_id) != 3:
+        for h, t in entity_pairs:
+            forward = forward_by_pair.get((h, t))
+            backward = backward_by_pair.get((t, h))
+            forward_dist = feature_distance(forward)
+            backward_dist = feature_distance(backward)
+
+            if forward_dist == float('inf') and backward_dist == float('inf'):
                 continue
+
+            if backward_dist < forward_dist:
+                chosen = backward
+                direction = 'backward'
+                scored_pair_id = [t, h]
+            else:
+                chosen = forward
+                direction = 'forward'
+                scored_pair_id = [h, t]
+
             result.append({
-                'pair_id': [triple_id[0], triple_id[2]],
-                'pair_score': item.get('triple_score'),
-                'ref_score': item.get('ref_score', []),
+                'pair_id': [h, t],
+                'pair_score': chosen.get('triple_score'),
+                'ref_score': chosen.get('ref_score', []),
+                'direction': direction,
+                'scored_pair_id': scored_pair_id,
             })
         return result
 
