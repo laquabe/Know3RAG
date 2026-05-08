@@ -253,7 +253,6 @@ class FactualChecker:
 
         if not pair_ids or self.kge is None:
             line['entity_pair_scores'] = []
-            line['sentence_best_pair_scores'] = []
             return line
 
         raw_scores = self.kge.score_entity_pairs(pair_ids)
@@ -265,8 +264,7 @@ class FactualChecker:
         else:
             scored_pairs = raw_scores
 
-        line['entity_pair_scores'] = scored_pairs
-        line['sentence_best_pair_scores'] = self.select_best_pair_per_sentence(scored_pairs)
+        line['entity_pair_scores'] = self.enrich_pair_feature_scores(scored_pairs)
         return line
 
     @staticmethod
@@ -286,32 +284,31 @@ class FactualChecker:
         return float(pair_score)
 
     @classmethod
-    def select_best_pair_per_sentence(cls, pair_scores: List[Dict]) -> List[Dict]:
+    def enrich_pair_feature_scores(cls, pair_scores: List[Dict]) -> List[Dict]:
         """
-        Keep only the best-scoring pair per sentence for fast factual scoring.
-        The full pair list is still kept in ``entity_pair_scores`` for debug.
+        Attach lower-is-better ``pair_feature_score`` to every scored pair.
+        Pairs whose feature score cannot be computed are dropped. Sorted by
+        sentence index, then by feature score, for stable output.
         """
-        best_by_sentence: Dict[int, Dict] = {}
+        enriched: List[Dict] = []
         for item in pair_scores:
-            sent_idx = item.get('sentence_idx')
-            if sent_idx is None:
-                continue
             feature = cls.compute_pair_feature_score(item)
             if feature is None:
                 continue
-
-            enriched = {**item, 'pair_feature_score': feature}
-            current = best_by_sentence.get(sent_idx)
-            if current is None or feature < current['pair_feature_score']:
-                best_by_sentence[sent_idx] = enriched
-
-        return [best_by_sentence[idx] for idx in sorted(best_by_sentence)]
+            enriched.append({**item, 'pair_feature_score': feature})
+        enriched.sort(
+            key=lambda x: (
+                x.get('sentence_idx') if x.get('sentence_idx') is not None else 1 << 30,
+                x.get('pair_feature_score', float('inf')),
+            )
+        )
+        return enriched
 
     def compute_fast_factual_score(self, line: dict) -> Optional[float]:
         """
         Aggregate fast entity-pair scores into a single passage score.
         """
-        pair_scores = line.get('sentence_best_pair_scores') or line.get('entity_pair_scores', [])
+        pair_scores = line.get('entity_pair_scores', [])
         converted_scores = [
             {
                 'triple_id': item.get('pair_id', []),
@@ -324,14 +321,14 @@ class FactualChecker:
         return score_feature(converted_scores, entity_count)
 
     @staticmethod
-    def simplify_best_pair_scores(best_pairs: List[Dict]) -> List[Dict]:
+    def simplify_pair_scores(pairs: List[Dict]) -> List[Dict]:
         """
-        Simplify selected per-sentence pair scores for JSON output.
-        Keeps only entity names, IDs, and the lower-is-better relative score.
+        Simplify scored entity pairs for JSON output.
+        Keeps only entity names, IDs, scoring direction, and the
+        lower-is-better relative score.
         """
-        simplified: List[Dict] = []
-        for item in best_pairs:
-            simplified.append({
+        return [
+            {
                 'sentence_idx': item.get('sentence_idx'),
                 'head': item.get('head'),
                 'tail': item.get('tail'),
@@ -339,8 +336,9 @@ class FactualChecker:
                 'tail_id': item.get('tail_id'),
                 'direction': item.get('direction'),
                 'relative_score': item.get('pair_feature_score'),
-            })
-        return simplified
+            }
+            for item in pairs
+        ]
 
     @classmethod
     def cleanup_fast_output(cls, line: dict, ent_key: str = 'passage_entity') -> dict:
@@ -349,15 +347,14 @@ class FactualChecker:
         ``passage_entity`` remains the original EL result only; expanded
         repeated mentions are internal and removed here.
         """
-        line['entity_pair_scores'] = cls.simplify_best_pair_scores(
-            line.get('sentence_best_pair_scores', [])
+        line['entity_pair_scores'] = cls.simplify_pair_scores(
+            line.get('entity_pair_scores', [])
         )
         for key in [
             'sentence_spans',
             'sentence_entities',
             'sentence_entity_pairs',
             'entity_pair_ids',
-            'sentence_best_pair_scores',
             f'_{ent_key}_expanded',
         ]:
             line.pop(key, None)
