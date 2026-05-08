@@ -41,9 +41,9 @@ class EntityLinkerConfig:
     spacy_model: str = "en_core_web_md"
 
     # ReFinED config
-    refined_model_name: str = "wikipedia_model_with_numbers"
-    refined_entity_set: str = "wikipedia"
-    refined_device: str = "cpu"
+    refined_model_name: str = "wikipedia_model"
+    refined_entity_set: str = "wikidata"
+    refined_device: str = ""
 
     # Relation mapping config
     sbert_model_path: str = ""          # e.g. all-mpnet-base-v2

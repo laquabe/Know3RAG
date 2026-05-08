@@ -423,15 +423,15 @@ def main():
         help="spaCy model name/path when --engine spacy."
     )
     parser.add_argument(
-        "--refined-model-name", default="wikipedia_model_with_numbers",
+        "--refined-model-name", default="wikipedia_model",
         help="ReFinED model_name when --engine refined."
     )
     parser.add_argument(
-        "--refined-entity-set", default="wikipedia",
+        "--refined-entity-set", default="wikidata",
         help="ReFinED entity_set when --engine refined."
     )
     parser.add_argument(
-        "--refined-device", default="cpu",
+        "--refined-device", default="",
         help="ReFinED device, e.g. cpu or cuda."
     )
     parser.add_argument(
