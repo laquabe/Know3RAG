@@ -35,7 +35,17 @@ class KGEConfig:
 
 @dataclass
 class EntityLinkerConfig:
+    engine: str = "spacy"                 # spacy | refined
+
+    # spaCy entityLinker config
     spacy_model: str = "en_core_web_md"
+
+    # ReFinED config
+    refined_model_name: str = "wikipedia_model_with_numbers"
+    refined_entity_set: str = "wikipedia"
+    refined_device: str = "cpu"
+
+    # Relation mapping config
     sbert_model_path: str = ""          # e.g. all-mpnet-base-v2
     relation_file: str = ""             # datasets/relation.json
     relation_template_file: str = ""    # datasets/relation_template.json

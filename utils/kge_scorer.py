@@ -110,14 +110,20 @@ class KGEScorer:
             o_id = self._e_kgc_id_dict.get(o, -1)
             if s_id == -1 or o_id == -1:
                 continue
-            p_id = self._r_kgc_id_dict.get(p)
-            if p_id is None:
-                continue
             s_ids.append(int(s_id))
-            p_ids.append(int(p_id))
             o_ids.append(int(o_id))
             valid_triples.append(t)
             valid_heads.add(s)
+
+            if use_relation:
+                p_id = self._r_kgc_id_dict.get(p)
+                if p_id is None:
+                    s_ids.pop()
+                    o_ids.pop()
+                    valid_triples.pop()
+                    valid_heads.discard(s)
+                    continue
+                p_ids.append(int(p_id))
 
         if not s_ids:
             return []
@@ -168,6 +174,30 @@ class KGEScorer:
                 'triple_id': list(t),
                 'triple_score': sc,
                 'ref_score': ref_score_dict.get(t[0], []),
+            })
+        return result
+
+    def score_entity_pairs(
+        self,
+        entity_pairs: List[Tuple[str, str]],
+    ) -> List[Dict]:
+        """
+        Scores a list of (wiki_head_id, wiki_tail_id) pairs without requiring
+        an explicit relation. Internally uses the model's score_so() and keeps
+        the best latent relation score for each pair.
+        Returns list of {pair_id, pair_score, ref_score: [...]}.
+        """
+        triples = [(h, '__NO_REL__', t) for h, t in entity_pairs]
+        triple_scores = self.score_triples(triples, use_relation=False)
+        result = []
+        for item in triple_scores:
+            triple_id = item.get('triple_id', [])
+            if len(triple_id) != 3:
+                continue
+            result.append({
+                'pair_id': [triple_id[0], triple_id[2]],
+                'pair_score': item.get('triple_score'),
+                'ref_score': item.get('ref_score', []),
             })
         return result
 
