@@ -194,6 +194,8 @@ class FactualChecker:
                         continue
                     seen.add(key)
                     pair_records.append({
+                        'pair_idx': len(pair_records),
+                        'sentence_idx': sent_idx,
                         'sentence': sent.get('text', ''),
                         'head': h.get('mention', ''),
                         'tail': t.get('mention', ''),
@@ -237,18 +239,77 @@ class FactualChecker:
         Fast score stage: score ``entity_pair_ids`` with KGE without LLM or
         explicit relation extraction.
         """
-        pair_ids = line.get('entity_pair_ids', [])
+        pair_records = line.get('sentence_entity_pairs', [])
+        if pair_records:
+            pair_ids = [
+                (pair['head_id'], pair['tail_id'])
+                for pair in pair_records
+                if pair.get('head_id') and pair.get('tail_id')
+            ]
+        else:
+            pair_ids = line.get('entity_pair_ids', [])
+
         if not pair_ids or self.kge is None:
             line['entity_pair_scores'] = []
+            line['sentence_best_pair_scores'] = []
             return line
-        line['entity_pair_scores'] = self.kge.score_entity_pairs(pair_ids)
+
+        raw_scores = self.kge.score_entity_pairs(pair_ids)
+        if pair_records:
+            scored_pairs = [
+                {**pair, **score}
+                for pair, score in zip(pair_records, raw_scores)
+            ]
+        else:
+            scored_pairs = raw_scores
+
+        line['entity_pair_scores'] = scored_pairs
+        line['sentence_best_pair_scores'] = self.select_best_pair_per_sentence(scored_pairs)
         return line
+
+    @staticmethod
+    def compute_pair_feature_score(pair_score_item: Dict) -> Optional[float]:
+        """
+        Compute the lower-is-better feature score for one entity pair.
+        Mirrors score_feature(): abs(pair_score - avg(ref_score)) when
+        references exist, otherwise falls back to raw pair_score.
+        """
+        pair_score = pair_score_item.get('pair_score')
+        if pair_score is None:
+            return None
+        ref_score = pair_score_item.get('ref_score', [])
+        if ref_score:
+            import numpy as np
+            return float(abs(pair_score - np.average(ref_score)))
+        return float(pair_score)
+
+    @classmethod
+    def select_best_pair_per_sentence(cls, pair_scores: List[Dict]) -> List[Dict]:
+        """
+        Keep only the best-scoring pair per sentence for fast factual scoring.
+        The full pair list is still kept in ``entity_pair_scores`` for debug.
+        """
+        best_by_sentence: Dict[int, Dict] = {}
+        for item in pair_scores:
+            sent_idx = item.get('sentence_idx')
+            if sent_idx is None:
+                continue
+            feature = cls.compute_pair_feature_score(item)
+            if feature is None:
+                continue
+
+            enriched = {**item, 'pair_feature_score': feature}
+            current = best_by_sentence.get(sent_idx)
+            if current is None or feature < current['pair_feature_score']:
+                best_by_sentence[sent_idx] = enriched
+
+        return [best_by_sentence[idx] for idx in sorted(best_by_sentence)]
 
     def compute_fast_factual_score(self, line: dict) -> Optional[float]:
         """
         Aggregate fast entity-pair scores into a single passage score.
         """
-        pair_scores = line.get('entity_pair_scores', [])
+        pair_scores = line.get('sentence_best_pair_scores') or line.get('entity_pair_scores', [])
         converted_scores = [
             {
                 'triple_id': item.get('pair_id', []),
