@@ -337,6 +337,7 @@ class FactualChecker:
                 'tail': item.get('tail'),
                 'head_id': item.get('head_id'),
                 'tail_id': item.get('tail_id'),
+                'direction': item.get('direction'),
                 'relative_score': item.get('pair_feature_score'),
             })
         return simplified
