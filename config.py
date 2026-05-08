@@ -82,6 +82,7 @@ class PipelineConfig:
     use_retriever: bool = False
     use_knowledge_card: bool = False
     knowledge_card_model_path: str = ""
+    fast_mode_use_relation: bool = False
 
 
 @dataclass

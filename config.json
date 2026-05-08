@@ -16,6 +16,7 @@
     "dataset_path": "/data/xkliu/kge/data/wikidata5m/"
   },
   "pipeline": {
-    "dataset_name": "hotpotQA"
+    "dataset_name": "hotpotQA",
+    "fast_mode_use_relation": false
   }
 }

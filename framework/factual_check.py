@@ -274,16 +274,87 @@ class FactualChecker:
 
     def score_entity_pairs(self, line: dict) -> dict:
         """
-        Fast score stage: score sentence-local entity pairs as SPO triples.
-        Each sentence gets one matched relation, shared by all entity pairs in
-        that sentence. Pair direction is single-pass in sentence order, and the
-        final output keeps only the best triple per sentence.
+        Fast score stage dispatcher.
+
+        If ``pipeline.fast_mode_use_relation`` is true, score sentence-local
+        entity pairs as SPO triples using one matched relation per sentence and
+        keep one best triple per sentence. Otherwise, score all entity pairs
+        without explicit relations using KGE score_so(), preserving every pair.
+        """
+        if getattr(self.cfg, 'fast_mode_use_relation', False):
+            return self.score_entity_pairs_with_relation(line)
+        return self.score_entity_pairs_without_relation(line)
+
+    def score_entity_pairs_without_relation(self, line: dict) -> dict:
+        """
+        Fast score stage without relation matching: score all sentence-local
+        entity pairs via KGEScorer.score_entity_pairs(), preserving every pair.
+        """
+        pair_records = line.get('sentence_entity_pairs', [])
+        if pair_records:
+            pair_ids = [
+                (pair['head_id'], pair['tail_id'])
+                for pair in pair_records
+                if pair.get('head_id') and pair.get('tail_id')
+            ]
+        else:
+            pair_ids = line.get('entity_pair_ids', [])
+
+        if not pair_ids or self.kge is None:
+            line['entity_pair_scores'] = []
+            line['_fast_debug'] = {
+                'pair_count': len(pair_ids),
+                'mode': 'without_relation',
+                'reason': 'no entity pairs or KGE scorer is unavailable',
+            }
+            return line
+
+        raw_scores = self.kge.score_entity_pairs(pair_ids)
+        if pair_records:
+            records_by_pair: Dict[Tuple[str, str], List[Dict]] = {}
+            for pair in pair_records:
+                if not pair.get('head_id') or not pair.get('tail_id'):
+                    continue
+                key = (str(pair['head_id']), str(pair['tail_id']))
+                records_by_pair.setdefault(key, []).append(pair)
+            scored_pairs = []
+            for score in raw_scores:
+                pair_id = score.get('pair_id', [])
+                if len(pair_id) != 2:
+                    continue
+                candidates = records_by_pair.get((str(pair_id[0]), str(pair_id[1])), [])
+                if not candidates:
+                    continue
+                record = candidates.pop(0)
+                scored_pairs.append({**record, **score})
+        else:
+            scored_pairs = raw_scores
+
+        line['entity_pair_scores'] = self.enrich_all_pair_feature_scores(scored_pairs)
+        if line['entity_pair_scores']:
+            line.pop('_fast_debug', None)
+        else:
+            line['_fast_debug'] = {
+                'pair_count': len(pair_ids),
+                'scored_pair_count': len(raw_scores),
+                'mode': 'without_relation',
+                'reason': 'KGE scoring produced no usable entity-pair scores.',
+            }
+        return line
+
+    def score_entity_pairs_with_relation(self, line: dict) -> dict:
+        """
+        Fast score stage with relation matching: score sentence-local entity
+        pairs as SPO triples. Each sentence gets one matched relation, shared
+        by all entity pairs in that sentence. Pair direction is single-pass in
+        sentence order, and final output keeps only the best triple per sentence.
         """
         pair_records = line.get('sentence_entity_pairs', [])
         if not pair_records or self.kge is None:
             line['entity_pair_scores'] = []
             line['_fast_debug'] = {
                 'pair_count': len(pair_records),
+                'mode': 'with_relation',
                 'reason': 'no sentence entity pairs or KGE scorer is unavailable',
             }
             return line
@@ -296,6 +367,7 @@ class FactualChecker:
             line['_fast_debug'] = {
                 'pair_count': len(pair_records),
                 'relation_count': 0,
+                'mode': 'with_relation',
                 'reason': (
                     'No sentence relations were mapped. Check '
                     'entity_linker.sbert_model_path and '
@@ -330,6 +402,7 @@ class FactualChecker:
                 'pair_count': len(pair_records),
                 'relation_count': len(sentence_relations),
                 'triple_candidate_count': 0,
+                'mode': 'with_relation',
                 'reason': 'No SPO candidates could be built from sentence pairs and mapped relations.',
             }
             return line
@@ -354,6 +427,7 @@ class FactualChecker:
                 'relation_count': len(sentence_relations),
                 'triple_candidate_count': len(triple_ids),
                 'scored_triple_count': len(scored_triples),
+                'mode': 'with_relation',
                 'reason': (
                     'KGE scoring produced no usable sentence-level best triples. '
                     'Check whether entity/relation IDs exist in KGE mapping files.'
@@ -379,6 +453,26 @@ class FactualChecker:
             import numpy as np
             return float(abs(triple_score - np.average(ref_score)))
         return -float(triple_score)
+
+    @classmethod
+    def enrich_all_pair_feature_scores(cls, pair_scores: List[Dict]) -> List[Dict]:
+        """
+        Attach lower-is-better ``pair_feature_score`` to every scored pair.
+        Unlike relation mode, this preserves all entity-pair scores.
+        """
+        enriched: List[Dict] = []
+        for item in pair_scores:
+            feature = cls.compute_pair_feature_score(item)
+            if feature is None:
+                continue
+            enriched.append({**item, 'pair_feature_score': feature})
+        enriched.sort(
+            key=lambda x: (
+                x.get('sentence_idx') if x.get('sentence_idx') is not None else 1 << 30,
+                x.get('pair_feature_score', float('inf')),
+            )
+        )
+        return enriched
 
     @classmethod
     def select_best_triples_by_sentence(cls, triple_scores: List[Dict]) -> List[Dict]:
@@ -407,8 +501,8 @@ class FactualChecker:
         pair_scores = line.get('entity_pair_scores', [])
         converted_scores = [
             {
-                'triple_id': item.get('triple_id', []),
-                'triple_score': item.get('triple_score'),
+                'triple_id': item.get('triple_id', item.get('pair_id', [])),
+                'triple_score': item.get('triple_score', item.get('pair_score')),
                 'ref_score': item.get('ref_score', []),
             }
             for item in pair_scores
@@ -434,6 +528,9 @@ class FactualChecker:
                 'relation_score': item.get('relation_score'),
                 'triple_id': item.get('triple_id'),
                 'triple_score': item.get('triple_score'),
+                'pair_id': item.get('pair_id'),
+                'pair_score': item.get('pair_score'),
+                'direction': item.get('direction'),
                 'relative_score': item.get('pair_feature_score'),
             }
             for item in pairs
@@ -468,11 +565,12 @@ class FactualChecker:
     ) -> dict:
         """
         Run the fast factual-check pipeline:
-        passage EL → sentence-local entity pairs → sentence relation mapping
-        → SPO KGE scoring → one best triple per sentence.
+        passage EL → sentence-local entity pairs → optional sentence relation
+        mapping → KGE scoring.
         """
         line = self.extract_entity_pairs(line, src_key=src_key, ent_key=ent_key)
-        line = self.map_sentence_relations(line)
+        if getattr(self.cfg, 'fast_mode_use_relation', False):
+            line = self.map_sentence_relations(line)
         line = self.score_entity_pairs(line)
         return line
 
