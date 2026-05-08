@@ -1,0 +1,11 @@
+{
+  "entity_linker": {
+    "engine": "refined",
+    "refined_model_name": "wikipedia_model",
+    "refined_entity_set": "wikidata",
+    "refined_device": ""
+  },
+  "pipeline": {
+    "dataset_name": "hotpotQA"
+  }
+}
