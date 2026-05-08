@@ -204,11 +204,8 @@ class EntityLinker:
 
         ent_dict: Dict[str, Dict] = {}
         for span in spans:
-            if len(span) < 2:
-                continue
-
-            mention = span[0]
-            entity = span[1]
+            mention = getattr(span, 'text', None)
+            entity = getattr(span, 'predicted_entity', None)
             if not mention or len(mention) <= 2 or entity is None:
                 continue
 
@@ -218,10 +215,20 @@ class EntityLinker:
             if not qid.startswith('Q'):
                 qid = f'Q{qid}'
 
-            label = getattr(entity, 'wikipedia_entity_title', '') or mention
+            label = getattr(entity, 'wikipedia_entity_title', None)
+            if not label:
+                continue
+
+            start = getattr(span, 'start', None)
+            length = getattr(span, 'ln', None)
+            if start is None or length is None:
+                continue
+
             ent_dict[mention] = {
                 'id': qid,
                 'entity': label,
+                'start': start,
+                'end': start + length,
             }
 
         return ent_dict
