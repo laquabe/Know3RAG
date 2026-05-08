@@ -4,7 +4,13 @@ Pure NLP functions — no file-batch loops, no argparse.
 Models are lazy-loaded on first use.
 """
 from __future__ import annotations
+import os
+import sys
 from typing import Dict, List, Optional, Tuple
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from config import EntityLinkerConfig
 
