@@ -292,6 +292,44 @@ class EntityLinker:
                 result[triple_str] = self._template_sentence_info[best_idx]['wiki_id']
         return result
 
+    def map_relation_for_sentence(
+        self,
+        sentence: str,
+        subject: str,
+        object: str,
+    ) -> Optional[Dict[str, float | str]]:
+        """
+        Maps one sentence to one Wikidata relation ID using sentence-template
+        similarity. The sentence is encoded as the query, while each relation
+        template is filled with the sentence's representative subject/object
+        mentions, normally the first and last entities in that sentence.
+
+        Returns {'relation_id': wiki_id, 'relation_score': cosine_similarity}
+        or None when relation templates are unavailable.
+        """
+        self._load_relation_resources()
+        if not sentence or not subject or not object or not self._template_sentence_info:
+            return None
+
+        from sentence_transformers import util
+        import torch
+
+        query_embed = self._sent_model.encode(sentence)
+        templates = [
+            r['sentence_template'].format_map(
+                {'subject': subject, 'object': object}
+            )
+            for r in self._template_sentence_info
+        ]
+        templ_embeds = self._sent_model.encode(templates)
+        sim = util.pytorch_cos_sim(query_embed, templ_embeds)
+        best_idx = torch.argmax(sim, dim=-1).item()
+        best_score = sim.reshape(-1)[best_idx].item()
+        return {
+            'relation_id': self._template_sentence_info[best_idx]['wiki_id'],
+            'relation_score': float(best_score),
+        }
+
     def map_triple_ids(
         self,
         triple_list: List[Dict],

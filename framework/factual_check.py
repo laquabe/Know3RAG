@@ -167,6 +167,7 @@ class FactualChecker:
                     continue
                 if sent['start'] <= start and end <= sent['end']:
                     sent_entities.append({**info, 'mention': info.get('mention', mention)})
+            sent_entities.sort(key=lambda x: (x.get('start', 1 << 30), x.get('end', 1 << 30)))
             results.append({**sent, 'entities': sent_entities})
         return results
 
@@ -236,73 +237,133 @@ class FactualChecker:
         ]
         return line
 
+    def map_sentence_relations(self, line: dict) -> dict:
+        """
+        Fast relation stage: map each sentence to exactly one relation using
+        its first and last linked entities as template placeholders. All
+        sentence-local triples later share this sentence-level relation.
+        """
+        sentence_entities = line.get('sentence_entities', [])
+        sentence_relations: Dict[int, Dict] = {}
+        if self.linker is None:
+            line['sentence_relations'] = sentence_relations
+            return line
+
+        for sent_idx, sent in enumerate(sentence_entities):
+            entities = sent.get('entities', [])
+            if len(entities) < 2:
+                continue
+            first = entities[0]
+            last = entities[-1]
+            relation = self.linker.map_relation_for_sentence(
+                sentence=sent.get('text', ''),
+                subject=first.get('mention', ''),
+                object=last.get('mention', ''),
+            )
+            if relation:
+                sentence_relations[sent_idx] = {
+                    **relation,
+                    'subject': first.get('mention', ''),
+                    'object': last.get('mention', ''),
+                    'subject_id': first.get('id'),
+                    'object_id': last.get('id'),
+                }
+
+        line['sentence_relations'] = sentence_relations
+        return line
+
     def score_entity_pairs(self, line: dict) -> dict:
         """
-        Fast score stage: score ``entity_pair_ids`` with KGE without LLM or
-        explicit relation extraction.
+        Fast score stage: score sentence-local entity pairs as SPO triples.
+        Each sentence gets one matched relation, shared by all entity pairs in
+        that sentence. Pair direction is single-pass in sentence order, and the
+        final output keeps only the best triple per sentence.
         """
         pair_records = line.get('sentence_entity_pairs', [])
-        if pair_records:
-            pair_ids = [
-                (pair['head_id'], pair['tail_id'])
-                for pair in pair_records
-                if pair.get('head_id') and pair.get('tail_id')
-            ]
-        else:
-            pair_ids = line.get('entity_pair_ids', [])
-
-        if not pair_ids or self.kge is None:
+        if not pair_records or self.kge is None:
             line['entity_pair_scores'] = []
             return line
 
-        raw_scores = self.kge.score_entity_pairs(pair_ids)
-        if pair_records:
-            scored_pairs = [
-                {**pair, **score}
-                for pair, score in zip(pair_records, raw_scores)
-            ]
-        else:
-            scored_pairs = raw_scores
+        if 'sentence_relations' not in line:
+            line = self.map_sentence_relations(line)
+        sentence_relations = line.get('sentence_relations', {})
 
-        line['entity_pair_scores'] = self.enrich_pair_feature_scores(scored_pairs)
+        triple_records: List[Dict] = []
+        triple_ids: List[Tuple[str, str, str]] = []
+        for pair in pair_records:
+            relation_info = sentence_relations.get(pair.get('sentence_idx'))
+            if not relation_info:
+                continue
+            relation_id = relation_info.get('relation_id')
+            if not relation_id or not pair.get('head_id') or not pair.get('tail_id'):
+                continue
+            triple_id = (pair['head_id'], relation_id, pair['tail_id'])
+            triple_ids.append(triple_id)
+            triple_records.append({
+                **pair,
+                'relation_id': relation_id,
+                'relation_score': relation_info.get('relation_score'),
+                'sentence_relation_subject': relation_info.get('subject'),
+                'sentence_relation_object': relation_info.get('object'),
+                'triple_id': list(triple_id),
+            })
+
+        if not triple_ids:
+            line['entity_pair_scores'] = []
+            return line
+
+        raw_scores = self.kge.score_triples(triple_ids, use_relation=True)
+        records_by_triple = {
+            tuple(record['triple_id']): record
+            for record in triple_records
+        }
+        scored_triples = []
+        for score in raw_scores:
+            triple_key = tuple(score.get('triple_id', []))
+            record = records_by_triple.get(triple_key)
+            if record is None:
+                continue
+            scored_triples.append({**record, **score})
+
+        line['entity_pair_scores'] = self.select_best_triples_by_sentence(scored_triples)
         return line
 
     @staticmethod
     def compute_pair_feature_score(pair_score_item: Dict) -> Optional[float]:
         """
-        Compute the lower-is-better feature score for one entity pair.
-        Mirrors score_feature(): abs(pair_score - avg(ref_score)) when
-        references exist, otherwise falls back to raw pair_score.
+        Compute the lower-is-better feature score for one fast-mode triple.
+        Mirrors score_feature(): abs(score - avg(ref_score)) when references
+        exist. If no references exist, fall back to negative raw KGE score so
+        higher KGE plausibility is preferred during best-triple selection.
         """
-        pair_score = pair_score_item.get('pair_score')
-        if pair_score is None:
+        triple_score = pair_score_item.get('triple_score', pair_score_item.get('pair_score'))
+        if triple_score is None:
             return None
         ref_score = pair_score_item.get('ref_score', [])
         if ref_score:
             import numpy as np
-            return float(abs(pair_score - np.average(ref_score)))
-        return float(pair_score)
+            return float(abs(triple_score - np.average(ref_score)))
+        return -float(triple_score)
 
     @classmethod
-    def enrich_pair_feature_scores(cls, pair_scores: List[Dict]) -> List[Dict]:
+    def select_best_triples_by_sentence(cls, triple_scores: List[Dict]) -> List[Dict]:
         """
-        Attach lower-is-better ``pair_feature_score`` to every scored pair.
-        Pairs whose feature score cannot be computed are dropped. Sorted by
-        sentence index, then by feature score, for stable output.
+        Attach lower-is-better ``pair_feature_score`` and keep only one best
+        scored triple for each sentence.
         """
-        enriched: List[Dict] = []
-        for item in pair_scores:
+        best_by_sentence: Dict[int, Dict] = {}
+        for item in triple_scores:
             feature = cls.compute_pair_feature_score(item)
             if feature is None:
                 continue
-            enriched.append({**item, 'pair_feature_score': feature})
-        enriched.sort(
-            key=lambda x: (
-                x.get('sentence_idx') if x.get('sentence_idx') is not None else 1 << 30,
-                x.get('pair_feature_score', float('inf')),
-            )
-        )
-        return enriched
+            enriched = {**item, 'pair_feature_score': feature}
+            sent_idx = enriched.get('sentence_idx')
+            if sent_idx is None:
+                continue
+            current = best_by_sentence.get(sent_idx)
+            if current is None or feature < current.get('pair_feature_score', float('inf')):
+                best_by_sentence[sent_idx] = enriched
+        return [best_by_sentence[k] for k in sorted(best_by_sentence)]
 
     def compute_fast_factual_score(self, line: dict) -> Optional[float]:
         """
@@ -311,8 +372,8 @@ class FactualChecker:
         pair_scores = line.get('entity_pair_scores', [])
         converted_scores = [
             {
-                'triple_id': item.get('pair_id', []),
-                'triple_score': item.get('pair_score'),
+                'triple_id': item.get('triple_id', []),
+                'triple_score': item.get('triple_score'),
                 'ref_score': item.get('ref_score', []),
             }
             for item in pair_scores
@@ -334,7 +395,10 @@ class FactualChecker:
                 'tail': item.get('tail'),
                 'head_id': item.get('head_id'),
                 'tail_id': item.get('tail_id'),
-                'direction': item.get('direction'),
+                'relation_id': item.get('relation_id'),
+                'relation_score': item.get('relation_score'),
+                'triple_id': item.get('triple_id'),
+                'triple_score': item.get('triple_score'),
                 'relative_score': item.get('pair_feature_score'),
             }
             for item in pairs
@@ -354,6 +418,7 @@ class FactualChecker:
             'sentence_spans',
             'sentence_entities',
             'sentence_entity_pairs',
+            'sentence_relations',
             'entity_pair_ids',
             f'_{ent_key}_expanded',
         ]:
@@ -368,9 +433,11 @@ class FactualChecker:
     ) -> dict:
         """
         Run the fast factual-check pipeline:
-        passage EL → sentence-local entity pairs → KGE pair scoring.
+        passage EL → sentence-local entity pairs → sentence relation mapping
+        → SPO KGE scoring → one best triple per sentence.
         """
         line = self.extract_entity_pairs(line, src_key=src_key, ent_key=ent_key)
+        line = self.map_sentence_relations(line)
         line = self.score_entity_pairs(line)
         return line
 
