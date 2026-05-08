@@ -380,45 +380,24 @@ def main():
     results = []
     for i, line in enumerate(data):
         print(f"[factual_check --mode {args.mode} --step {args.step}] {i + 1}/{len(data)}", end="\r")
-        candidates = line.get("candidate_passages", [])
-        for cand in candidates:
-            # Build a temporary single-passage line for the checker
-            tmp = {**line, "passages": cand.get("text", "")}
-            if args.mode == "triple":
-                if run_extract:
-                    tmp = checker.extract_triples(tmp, src_key="passages", ent_key="passage_entity")
-                    cand["passage_entity"] = tmp.get("passage_entity", {})
-                    cand["llm_triple"] = tmp.get("llm_triple", [])
-                else:
-                    tmp["passage_entity"] = cand.get("passage_entity", {})
-                    tmp["llm_triple"] = cand.get("llm_triple", [])
-                if run_map:
-                    tmp = checker.map_triples_to_ids(tmp)
-                    cand["triple_entity_mapping"] = tmp.get("triple_entity_mapping", {})
-                    cand["triple_relation_mapping"] = tmp.get("triple_relation_mapping", {})
-                    cand["llm_triple_id"] = tmp.get("llm_triple_id", [])
-                else:
-                    tmp["llm_triple_id"] = cand.get("llm_triple_id", [])
-                if run_score:
-                    tmp = checker.score_triples(tmp)
-                    cand["llm_triple_score"] = tmp.get("llm_triple_score", [])
-                    cand["factual_score"] = checker.compute_factual_score(tmp)
-            else:
-                if run_extract:
-                    tmp = checker.extract_entity_pairs(tmp, src_key="passages", ent_key="passage_entity")
-                    cand["passage_entity"] = tmp.get("passage_entity", {})
-                    cand["sentence_spans"] = tmp.get("sentence_spans", [])
-                    cand["sentence_entities"] = tmp.get("sentence_entities", [])
-                    cand["sentence_entity_pairs"] = tmp.get("sentence_entity_pairs", [])
-                    cand["entity_pair_ids"] = tmp.get("entity_pair_ids", [])
-                else:
-                    tmp["passage_entity"] = cand.get("passage_entity", {})
-                    tmp["entity_pair_ids"] = cand.get("entity_pair_ids", [])
-                if run_score:
-                    tmp = checker.score_entity_pairs(tmp)
-                    cand["entity_pair_scores"] = tmp.get("entity_pair_scores", [])
-                    cand["fast_factual_score"] = checker.compute_fast_factual_score(tmp)
-        line["candidate_passages"] = candidates
+
+        # Each input record contains a single passage under line['passages'].
+        # Factual-check fields are therefore written directly at the record level.
+        if args.mode == "triple":
+            if run_extract:
+                line = checker.extract_triples(line, src_key="passages", ent_key="passage_entity")
+            if run_map:
+                line = checker.map_triples_to_ids(line)
+            if run_score:
+                line = checker.score_triples(line)
+                line["factual_score"] = checker.compute_factual_score(line)
+        else:
+            if run_extract:
+                line = checker.extract_entity_pairs(line, src_key="passages", ent_key="passage_entity")
+            if run_score:
+                line = checker.score_entity_pairs(line)
+                line["fast_factual_score"] = checker.compute_fast_factual_score(line)
+
         results.append(line)
 
     print()
