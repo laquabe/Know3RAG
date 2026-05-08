@@ -307,6 +307,26 @@ class EntityLinker:
         Returns {'relation_id': wiki_id, 'relation_score': cosine_similarity}
         or None when relation templates are unavailable.
         """
+        if not self.config.sbert_model_path:
+            raise ValueError(
+                "Fast relation matching requires entity_linker.sbert_model_path. "
+                "Please set it in config.json, e.g. "
+                "\"sbert_model_path\": \"/data/xkliu/hf_models/all-mpnet-base-v2\"."
+            )
+        if not self.config.relation_sentence_template_file:
+            raise ValueError(
+                "Fast relation matching requires "
+                "entity_linker.relation_sentence_template_file. Please set it "
+                "in config.json, e.g. \"relation_sentence_template_file\": "
+                "\"datasets/relation_sentence_template.json\"."
+            )
+        if not os.path.exists(self.config.relation_sentence_template_file):
+            raise FileNotFoundError(
+                "Relation sentence template file not found: '{}'. "
+                "Please check entity_linker.relation_sentence_template_file "
+                "in config.json.".format(self.config.relation_sentence_template_file)
+            )
+
         self._load_relation_resources()
         if not sentence or not subject or not object or not self._template_sentence_info:
             return None

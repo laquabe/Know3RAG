@@ -3,7 +3,11 @@
     "engine": "refined",
     "refined_model_name": "wikipedia_model",
     "refined_entity_set": "wikidata",
-    "refined_device": ""
+    "refined_device": "",
+    "sbert_model_path": "/data/xkliu/hf_models/all-mpnet-base-v2",
+    "relation_file": "datasets/relation.json",
+    "relation_template_file": "datasets/relation_template.json",
+    "relation_sentence_template_file": "datasets/relation_sentence_template.json"
   },
   "kge": {
     "checkpoint_path": "/data/xkliu/kge/checkpoints/wikidata5m-complex.pt",

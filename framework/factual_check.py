@@ -282,11 +282,27 @@ class FactualChecker:
         pair_records = line.get('sentence_entity_pairs', [])
         if not pair_records or self.kge is None:
             line['entity_pair_scores'] = []
+            line['_fast_debug'] = {
+                'pair_count': len(pair_records),
+                'reason': 'no sentence entity pairs or KGE scorer is unavailable',
+            }
             return line
 
         if 'sentence_relations' not in line:
             line = self.map_sentence_relations(line)
         sentence_relations = line.get('sentence_relations', {})
+        if pair_records and not sentence_relations:
+            line['entity_pair_scores'] = []
+            line['_fast_debug'] = {
+                'pair_count': len(pair_records),
+                'relation_count': 0,
+                'reason': (
+                    'No sentence relations were mapped. Check '
+                    'entity_linker.sbert_model_path and '
+                    'entity_linker.relation_sentence_template_file in config.json.'
+                ),
+            }
+            return line
 
         triple_records: List[Dict] = []
         triple_ids: List[Tuple[str, str, str]] = []
@@ -310,6 +326,12 @@ class FactualChecker:
 
         if not triple_ids:
             line['entity_pair_scores'] = []
+            line['_fast_debug'] = {
+                'pair_count': len(pair_records),
+                'relation_count': len(sentence_relations),
+                'triple_candidate_count': 0,
+                'reason': 'No SPO candidates could be built from sentence pairs and mapped relations.',
+            }
             return line
 
         raw_scores = self.kge.score_triples(triple_ids, use_relation=True)
@@ -326,6 +348,19 @@ class FactualChecker:
             scored_triples.append({**record, **score})
 
         line['entity_pair_scores'] = self.select_best_triples_by_sentence(scored_triples)
+        if not line['entity_pair_scores']:
+            line['_fast_debug'] = {
+                'pair_count': len(pair_records),
+                'relation_count': len(sentence_relations),
+                'triple_candidate_count': len(triple_ids),
+                'scored_triple_count': len(scored_triples),
+                'reason': (
+                    'KGE scoring produced no usable sentence-level best triples. '
+                    'Check whether entity/relation IDs exist in KGE mapping files.'
+                ),
+            }
+        else:
+            line.pop('_fast_debug', None)
         return line
 
     @staticmethod
