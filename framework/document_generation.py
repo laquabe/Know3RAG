@@ -229,7 +229,7 @@ def main():
 
     gen = DocumentGenerator(llm=llm, retriever=retriever, pipeline_cfg=cfg.pipeline)
 
-    data = read_jsonl(args.input)
+    data = list(read_jsonl(args.input))
     if args.test:
         data = data[:5]
 

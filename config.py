@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import os
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -97,6 +98,12 @@ def load_config(path: Optional[str] = None) -> Config:
     cfg = Config()
     if path is None:
         return cfg
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            "Config file not found: '{}'. Please pass an existing JSON file with "
+            "--config, set CONFIG=/path/to/config.json when using scripts/*.sh, "
+            "or create config.json in the project root.".format(path)
+        )
     with open(path) as f:
         data = json.load(f)
 
