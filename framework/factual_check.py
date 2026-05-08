@@ -64,12 +64,13 @@ class FactualChecker:
             line[ent_key] = line.get(ent_key, {})
             return line
 
-        line[ent_key] = self.linker.link_entities(
+        linked_entities = self.linker.link_entities(
             text,
             add_description=add_description,
             ner_filter=ner_filter,
         )
-        line[ent_key] = self.expand_repeated_mentions(text, line[ent_key])
+        line[ent_key] = linked_entities
+        line[f'_{ent_key}_expanded'] = self.expand_repeated_mentions(text, linked_entities)
         return line
 
     @staticmethod
@@ -218,9 +219,10 @@ class FactualChecker:
         line = self.extract_passage_entities(line, src_key=src_key, ent_key=ent_key)
         text = line.get(src_key, '')
         sentence_spans = self.split_sentences(text)
+        entity_source = line.get(f'_{ent_key}_expanded', line.get(ent_key, {}))
         sentence_entities = self.assign_entities_to_sentences(
             sentence_spans,
-            line.get(ent_key, {}),
+            entity_source,
         )
         pair_records = self.build_entity_pairs_from_sentences(sentence_entities)
 
@@ -320,6 +322,45 @@ class FactualChecker:
         ]
         entity_count = len(line.get('passage_entity', {})) or len(line.get('query_entity', {}))
         return score_feature(converted_scores, entity_count)
+
+    @staticmethod
+    def simplify_best_pair_scores(best_pairs: List[Dict]) -> List[Dict]:
+        """
+        Simplify selected per-sentence pair scores for JSON output.
+        Keeps only entity names, IDs, and the lower-is-better relative score.
+        """
+        simplified: List[Dict] = []
+        for item in best_pairs:
+            simplified.append({
+                'sentence_idx': item.get('sentence_idx'),
+                'head': item.get('head'),
+                'tail': item.get('tail'),
+                'head_id': item.get('head_id'),
+                'tail_id': item.get('tail_id'),
+                'relative_score': item.get('pair_feature_score'),
+            })
+        return simplified
+
+    @classmethod
+    def cleanup_fast_output(cls, line: dict, ent_key: str = 'passage_entity') -> dict:
+        """
+        Remove fast-mode intermediate fields from the output JSON.
+        ``passage_entity`` remains the original EL result only; expanded
+        repeated mentions are internal and removed here.
+        """
+        line['entity_pair_scores'] = cls.simplify_best_pair_scores(
+            line.get('sentence_best_pair_scores', [])
+        )
+        for key in [
+            'sentence_spans',
+            'sentence_entities',
+            'sentence_entity_pairs',
+            'entity_pair_ids',
+            'sentence_best_pair_scores',
+            f'_{ent_key}_expanded',
+        ]:
+            line.pop(key, None)
+        return line
 
     def run_fast(
         self,
@@ -513,6 +554,7 @@ def main():
             if run_score:
                 line = checker.score_entity_pairs(line)
                 line["fast_factual_score"] = checker.compute_fast_factual_score(line)
+            line = checker.cleanup_fast_output(line, ent_key="passage_entity")
 
         results.append(line)
 
