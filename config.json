@@ -5,6 +5,12 @@
     "refined_entity_set": "wikidata",
     "refined_device": ""
   },
+  "kge": {
+    "checkpoint_path": "/data/xkliu/kge/checkpoints/wikidata5m-complex.pt",
+    "entity_ids_path": "/data/xkliu/kge/data/wikidata5m/entity_ids.json",
+    "relation_ids_path": "/data/xkliu/kge/data/wikidata5m/relation_ids.json",
+    "dataset_path": "/data/xkliu/kge/data/wikidata5m/"
+  },
   "pipeline": {
     "dataset_name": "hotpotQA"
   }
