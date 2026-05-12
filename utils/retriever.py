@@ -100,6 +100,7 @@ class Corpus:
         ]
         self.ids: List[str] = [str(d['id']) for d in documents]
         self.titles: List[str] = [d.get('title', '') for d in documents]
+        self.urls: List[str] = [d.get('url', '') for d in documents]
 
     @staticmethod
     def _normalize_text(text) -> str:
@@ -251,6 +252,22 @@ class ColBERTIndex:
 
     def _collection_file(self, index_dir: Optional[str] = None) -> Path:
         return Path(index_dir or self.config.index_dir) / 'collection.tsv'
+
+    @staticmethod
+    def read_collection(path: Path, show_progress: bool = True) -> List[str]:
+        """Read ColBERT collection.tsv and return texts ordered by pid."""
+        texts: List[str] = []
+        with open(path, encoding='utf-8') as f:
+            for line in _progress(f, enabled=show_progress, desc='Loading ColBERT collection', unit='lines'):
+                line = line.rstrip('\n')
+                if not line:
+                    continue
+                if '\t' in line:
+                    _pid, text = line.split('\t', 1)
+                else:
+                    text = line
+                texts.append(text)
+        return texts
 
     @staticmethod
     def _write_collection(corpus: Corpus, path: Path) -> None:
@@ -436,10 +453,21 @@ class HybridRetriever:
             if self._mode() == 'sbert':
                 self._dense.save(str(index_dir / 'dense.npy'))
 
-        # Save corpus texts for retrieval output
-        with open(str(index_dir / 'corpus.jsonl'), 'w', encoding='utf-8') as f:
-            for doc in corpus.documents:
-                f.write(json.dumps(doc, ensure_ascii=False) + '\n')
+        # Save lightweight pid -> source metadata. Text is stored in collection.tsv.
+        with open(str(index_dir / 'metadata.jsonl'), 'w', encoding='utf-8') as f:
+            for doc in _progress(
+                corpus.documents,
+                enabled=getattr(self.config, 'show_progress', True),
+                desc='Writing corpus metadata',
+                unit='docs',
+            ):
+                meta = {
+                    'id': str(doc['id']),
+                    'title': doc.get('title', ''),
+                }
+                if doc.get('url'):
+                    meta['url'] = doc.get('url', '')
+                f.write(json.dumps(meta, ensure_ascii=False) + '\n')
 
     def load_index(self, index_dir: Optional[str] = None) -> None:
         """Load pre-built indexes from disk."""
@@ -452,21 +480,33 @@ class HybridRetriever:
             else:
                 self._dense.load(str(d))
 
-        # Reload corpus for output
-        corpus_path = d / 'corpus.jsonl'
-        if corpus_path.exists():
-            docs = []
-            with open(str(corpus_path), encoding='utf-8') as f:
-                for line in _progress(
-                    f,
-                    enabled=getattr(self.config, 'show_progress', True),
-                    desc='Loading indexed corpus',
-                    unit='lines',
-                ):
-                    line = line.strip()
-                    if line:
-                        docs.append(json.loads(line))
-            self.corpus = Corpus(docs, show_progress=getattr(self.config, 'show_progress', True))
+        # Reload lightweight corpus for output from metadata.jsonl + collection.tsv.
+        metadata_path = d / 'metadata.jsonl'
+        collection_path = d / 'collection.tsv'
+        if not metadata_path.exists() or not collection_path.exists():
+            raise FileNotFoundError(
+                "Expected metadata.jsonl and collection.tsv in index_dir. "
+                "Please rebuild the retriever index with the current code."
+            )
+        metadata = read_jsonl(
+            str(metadata_path),
+            show_progress=getattr(self.config, 'show_progress', True),
+            desc='Loading corpus metadata',
+        )
+        texts = ColBERTIndex.read_collection(
+            collection_path,
+            show_progress=getattr(self.config, 'show_progress', True),
+        )
+        if len(metadata) != len(texts):
+            raise ValueError(
+                f"metadata.jsonl and collection.tsv length mismatch: {len(metadata)} vs {len(texts)}"
+            )
+        docs = []
+        for meta, text in zip(metadata, texts):
+            doc = dict(meta)
+            doc['text'] = text
+            docs.append(doc)
+        self.corpus = Corpus(docs, show_progress=getattr(self.config, 'show_progress', True))
 
     @staticmethod
     def _min_max_normalize(scores: List[Tuple[int, float]]) -> Dict[int, float]:
@@ -521,15 +561,21 @@ class HybridRetriever:
         if self.corpus is None:
             return [{'id': idx, 'score': score} for idx, score in hits]
         return [
-            {
+            self._format_doc(idx, score)
+            for idx, score in hits
+            if idx < len(self.corpus)
+        ]
+
+    def _format_doc(self, idx: int, score: float) -> Dict:
+        doc = {
                 'id': self.corpus.ids[idx],
                 'text': self.corpus.texts[idx],
                 'title': self.corpus.titles[idx],
                 'score': score,
-            }
-            for idx, score in hits
-            if idx < len(self.corpus)
-        ]
+        }
+        if idx < len(self.corpus.urls) and self.corpus.urls[idx]:
+            doc['url'] = self.corpus.urls[idx]
+        return doc
 
     def retrieve_batch(
         self,
