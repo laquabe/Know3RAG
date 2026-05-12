@@ -77,9 +77,7 @@ class RetrieverConfig:
     colbert_checkpoint: str = "colbert-ir/colbertv2.0"
     colbert_index_name: str = "know3rag_colbert"
     colbert_root: str = ""                    # defaults to {index_dir}/colbert when empty
-    colbert_doc_maxlen: int = 256
     colbert_nbits: int = 2
-    colbert_kmeans_niters: int = 4
 
     bm25_k1: float = 1.5
     bm25_b: float = 0.75

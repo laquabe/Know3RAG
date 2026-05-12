@@ -312,11 +312,7 @@ class ColBERTIndex:
         if getattr(self.config, 'show_progress', True):
             print(f"Building ColBERT index '{self.config.colbert_index_name}' from {collection_path} ...")
         with Run().context(RunConfig(nranks=1, experiment='know3rag', root=str(root))):
-            colbert_cfg = ColBERTConfig(
-                doc_maxlen=self.config.colbert_doc_maxlen,
-                nbits=self.config.colbert_nbits,
-                kmeans_niters=self.config.colbert_kmeans_niters,
-            )
+            colbert_cfg = ColBERTConfig(nbits=self.config.colbert_nbits)
             indexer = Indexer(checkpoint=self.config.colbert_checkpoint, config=colbert_cfg)
             indexer.index(
                 name=self.config.colbert_index_name,
@@ -647,9 +643,7 @@ def _build_cli_config(args) -> RetrieverConfig:
         colbert_checkpoint=getattr(args, 'colbert_checkpoint', 'colbert-ir/colbertv2.0'),
         colbert_index_name=getattr(args, 'colbert_index_name', 'know3rag_colbert'),
         colbert_root=getattr(args, 'colbert_root', ''),
-        colbert_doc_maxlen=getattr(args, 'colbert_doc_maxlen', 180),
         colbert_nbits=getattr(args, 'colbert_nbits', 2),
-        colbert_kmeans_niters=getattr(args, 'colbert_kmeans_niters', 4),
         bm25_weight=getattr(args, 'bm25_weight', 0.5),
         dense_weight=getattr(args, 'dense_weight', 0.5),
         top_k=getattr(args, 'top_k', 5),
@@ -678,9 +672,7 @@ def main() -> None:
         p.add_argument('--colbert-checkpoint', default='colbert-ir/colbertv2.0')
         p.add_argument('--colbert-index-name', default='know3rag_colbert')
         p.add_argument('--colbert-root', default='')
-        p.add_argument('--colbert-doc-maxlen', type=int, default=180)
         p.add_argument('--colbert-nbits', type=int, default=2)
-        p.add_argument('--colbert-kmeans-niters', type=int, default=4)
 
     index_parser = subparsers.add_parser('index', help='Build retriever index')
     add_common_args(index_parser)
