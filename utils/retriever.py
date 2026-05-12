@@ -35,13 +35,25 @@ from config import RetrieverConfig
 # ---------------------------------------------------------------------------
 
 class Corpus:
-    """In-memory corpus. Each document: {id, text, title?}."""
+    """
+    In-memory corpus. Each document: {id, text, title?}.
+
+    `text` may be either a string or a list of string fragments. In the latter
+    case, fragments are concatenated into one passage/document by default.
+    """
 
     def __init__(self, documents: List[Dict]):
         self.documents = documents
-        self.texts: List[str] = [d['text'] for d in documents]
+        self.texts: List[str] = [self._normalize_text(d['text']) for d in documents]
         self.ids: List[str] = [str(d['id']) for d in documents]
         self.titles: List[str] = [d.get('title', '') for d in documents]
+
+    @staticmethod
+    def _normalize_text(text) -> str:
+        """Convert corpus text from str or list[str] to a single passage string."""
+        if isinstance(text, list):
+            return ''.join(str(fragment) for fragment in text).strip()
+        return str(text).strip()
 
     @classmethod
     def from_jsonl(cls, path: str) -> 'Corpus':
@@ -507,6 +519,10 @@ def main() -> None:
 
     def add_common_args(p):
         p.add_argument('--mode', choices=['bm25', 'colbert', 'hybrid', 'sbert'], default='hybrid')
+        p.add_argument(
+            '--passage-level', action='store_true', default=True,
+            help='Treat each JSONL record as one passage; list-valued text is concatenated. Enabled by default.'
+        )
         p.add_argument('--index-dir', default='retriever_index/')
         p.add_argument('--top-k', type=int, default=5)
         p.add_argument('--bm25-weight', type=float, default=0.5)
