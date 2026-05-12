@@ -41,6 +41,39 @@ def _progress(iterable, enabled: bool = True, **kwargs):
         return iterable
 
 
+def read_jsonl(path: str, show_progress: bool = True, desc: str = 'Loading JSONL') -> List[Dict]:
+    """Read a JSONL file into a list of dictionaries."""
+    rows: List[Dict] = []
+    with open(path, encoding='utf-8') as f:
+        for line in _progress(f, enabled=show_progress, desc=desc, unit='lines'):
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    return rows
+
+
+def write_jsonl(path: str, rows: List[Dict], show_progress: bool = True) -> None:
+    """Write dictionaries to a JSONL file."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, 'w', encoding='utf-8') as f:
+        for row in _progress(rows, enabled=show_progress, desc='Writing retrieval output', unit='lines'):
+            f.write(json.dumps(row, ensure_ascii=False) + '\n')
+
+
+def get_query_from_record(record: Dict, query_key: str = 'question') -> str:
+    """Extract query text from a JSONL record with common fallback keys."""
+    candidate_keys = [query_key]
+    for key in ('question', 'query', 'Question'):
+        if key not in candidate_keys:
+            candidate_keys.append(key)
+    for key in candidate_keys:
+        value = record.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ''
+
+
 # ---------------------------------------------------------------------------
 # Corpus
 # ---------------------------------------------------------------------------
@@ -609,7 +642,15 @@ def main() -> None:
 
     retrieve_parser = subparsers.add_parser('retrieve', help='Retrieve from an existing index')
     add_common_args(retrieve_parser)
-    retrieve_parser.add_argument('--query', required=True)
+    query_group = retrieve_parser.add_mutually_exclusive_group(required=True)
+    query_group.add_argument('--query', help='Single query string')
+    query_group.add_argument('--query-file', help='Input JSONL file containing queries')
+    retrieve_parser.add_argument('--output', help='Output JSONL path for --query-file results')
+    retrieve_parser.add_argument('--query-key', default='question', help='Field name used as query in --query-file')
+    retrieve_parser.add_argument(
+        '--output-key', default='retrieved_passages',
+        help='Field name used to store retrieval results in --query-file output'
+    )
 
     args = parser.parse_args()
     cfg = _build_cli_config(args)
@@ -621,6 +662,26 @@ def main() -> None:
 
     retriever = HybridRetriever(cfg)
     retriever.load_index()
+
+    if args.query_file:
+        if not args.output:
+            raise ValueError("--output is required when using --query-file")
+        rows = read_jsonl(
+            args.query_file,
+            show_progress=cfg.show_progress,
+            desc='Loading query file',
+        )
+        queries = [get_query_from_record(row, args.query_key) for row in rows]
+        results_batch = retriever.retrieve_batch(queries, top_k=args.top_k)
+        output_rows = []
+        for row, query, results in zip(rows, queries, results_batch):
+            new_row = dict(row)
+            new_row[args.output_key] = results if query else []
+            output_rows.append(new_row)
+        write_jsonl(args.output, output_rows, show_progress=cfg.show_progress)
+        print(f"Wrote {len(output_rows)} retrieval records to {args.output}")
+        return
+
     results = retriever.retrieve(args.query, top_k=args.top_k)
     print(json.dumps(results, ensure_ascii=False, indent=2))
 
