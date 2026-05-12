@@ -30,6 +30,17 @@ if str(PROJECT_ROOT) not in sys.path:
 from config import RetrieverConfig
 
 
+def _progress(iterable, enabled: bool = True, **kwargs):
+    """tqdm wrapper with graceful fallback when tqdm is unavailable/disabled."""
+    if not enabled:
+        return iterable
+    try:
+        from tqdm import tqdm  # type: ignore
+        return tqdm(iterable, **kwargs)
+    except Exception:
+        return iterable
+
+
 # ---------------------------------------------------------------------------
 # Corpus
 # ---------------------------------------------------------------------------
@@ -42,9 +53,18 @@ class Corpus:
     case, fragments are concatenated into one passage/document by default.
     """
 
-    def __init__(self, documents: List[Dict]):
+    def __init__(self, documents: List[Dict], show_progress: bool = True):
         self.documents = documents
-        self.texts: List[str] = [self._normalize_text(d['text']) for d in documents]
+        self.show_progress = show_progress
+        self.texts: List[str] = [
+            self._normalize_text(d['text'])
+            for d in _progress(
+                documents,
+                enabled=show_progress,
+                desc='Normalizing corpus text',
+                unit='docs',
+            )
+        ]
         self.ids: List[str] = [str(d['id']) for d in documents]
         self.titles: List[str] = [d.get('title', '') for d in documents]
 
@@ -56,15 +76,15 @@ class Corpus:
         return str(text).strip()
 
     @classmethod
-    def from_jsonl(cls, path: str) -> 'Corpus':
+    def from_jsonl(cls, path: str, show_progress: bool = True) -> 'Corpus':
         """Load corpus from a JSONL file where each line is {id, text, title?}."""
         docs = []
         with open(path, encoding='utf-8') as f:
-            for line in f:
+            for line in _progress(f, enabled=show_progress, desc='Loading corpus', unit='lines'):
                 line = line.strip()
                 if line:
                     docs.append(json.loads(line))
-        return cls(docs)
+        return cls(docs, show_progress=show_progress)
 
     def __len__(self) -> int:
         return len(self.documents)
@@ -84,7 +104,15 @@ class BM25Index:
     def build(self, corpus: Corpus) -> None:
         """Tokenize and build BM25 index."""
         from rank_bm25 import BM25Okapi  # type: ignore
-        tokenized = [text.lower().split() for text in corpus.texts]
+        tokenized = [
+            text.lower().split()
+            for text in _progress(
+                corpus.texts,
+                enabled=getattr(self.config, 'show_progress', True),
+                desc='Tokenizing corpus for BM25',
+                unit='docs',
+            )
+        ]
         self._index = BM25Okapi(tokenized, k1=self.config.bm25_k1, b=self.config.bm25_b)
 
     def save(self, path: str) -> None:
@@ -128,7 +156,7 @@ class DenseIndex:
         self._embeddings = self._model.encode(
             corpus.texts,
             batch_size=batch_size,
-            show_progress_bar=True,
+            show_progress_bar=getattr(self.config, 'show_progress', True),
             convert_to_numpy=True,
             normalize_embeddings=True,  # cosine = dot product when normalized
         ).astype(np.float32)
@@ -195,7 +223,14 @@ class ColBERTIndex:
     def _write_collection(corpus: Corpus, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, 'w', encoding='utf-8') as f:
-            for idx, text in enumerate(corpus.texts):
+            iterator = enumerate(corpus.texts)
+            for idx, text in _progress(
+                iterator,
+                enabled=getattr(corpus, 'show_progress', True),
+                desc='Writing ColBERT collection',
+                total=len(corpus.texts),
+                unit='docs',
+            ):
                 clean_text = text.replace('\t', ' ').replace('\n', ' ').strip()
                 f.write(f"{idx}\t{clean_text}\n")
 
@@ -224,6 +259,8 @@ class ColBERTIndex:
         root = self._root()
         root.mkdir(parents=True, exist_ok=True)
 
+        if getattr(self.config, 'show_progress', True):
+            print(f"Building ColBERT index '{self.config.colbert_index_name}' from {collection_path} ...")
         with Run().context(RunConfig(nranks=1, experiment='know3rag', root=str(root))):
             colbert_cfg = ColBERTConfig(
                 doc_maxlen=self.config.colbert_doc_maxlen,
@@ -236,6 +273,8 @@ class ColBERTIndex:
                 collection=str(collection_path),
                 overwrite=True,
             )
+        if getattr(self.config, 'show_progress', True):
+            print(f"Finished ColBERT index '{self.config.colbert_index_name}'.")
 
     def load(self, index_dir: Optional[str] = None) -> None:
         """Initialise a ColBERT Searcher from an existing index."""
@@ -299,7 +338,15 @@ class ColBERTIndex:
         return self._ranking_to_hits(ranking, top_k)
 
     def search_batch(self, queries: List[str], top_k: int) -> List[List[Tuple[int, float]]]:
-        return [self.search(query, top_k) for query in queries]
+        return [
+            self.search(query, top_k)
+            for query in _progress(
+                queries,
+                enabled=getattr(self.config, 'show_progress', True),
+                desc='ColBERT batch retrieval',
+                unit='queries',
+            )
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -377,11 +424,16 @@ class HybridRetriever:
         if corpus_path.exists():
             docs = []
             with open(str(corpus_path), encoding='utf-8') as f:
-                for line in f:
+                for line in _progress(
+                    f,
+                    enabled=getattr(self.config, 'show_progress', True),
+                    desc='Loading indexed corpus',
+                    unit='lines',
+                ):
                     line = line.strip()
                     if line:
                         docs.append(json.loads(line))
-            self.corpus = Corpus(docs)
+            self.corpus = Corpus(docs, show_progress=getattr(self.config, 'show_progress', True))
 
     @staticmethod
     def _min_max_normalize(scores: List[Tuple[int, float]]) -> Dict[int, float]:
@@ -460,13 +512,27 @@ class HybridRetriever:
 
         mode = self._mode()
         if mode == 'bm25':
-            return [self._format_results(self._bm25.search(query, k)) for query in queries]
+            return [
+                self._format_results(self._bm25.search(query, k))
+                for query in _progress(
+                    queries,
+                    enabled=getattr(self.config, 'show_progress', True),
+                    desc='BM25 batch retrieval',
+                    unit='queries',
+                )
+            ]
         if mode in {'colbert', 'sbert'}:
             return [self._format_results(hits) for hits in self._dense.search_batch(queries, k)]
 
         dense_batch = self._dense.search_batch(queries, fetch_k)
         results = []
-        for query, dense_hits in zip(queries, dense_batch):
+        for query, dense_hits in _progress(
+            zip(queries, dense_batch),
+            enabled=getattr(self.config, 'show_progress', True),
+            desc='Hybrid batch retrieval',
+            total=len(queries),
+            unit='queries',
+        ):
             bm25_hits = self._bm25.search(query, fetch_k)
             bm25_norm = self._min_max_normalize(bm25_hits)
             dense_norm = self._min_max_normalize(dense_hits)
@@ -487,7 +553,7 @@ def build_index_from_jsonl(corpus_path: str, config: RetrieverConfig) -> HybridR
     """
     Convenience: load corpus from JSONL, build both indexes, save, and return retriever.
     """
-    corpus = Corpus.from_jsonl(corpus_path)
+    corpus = Corpus.from_jsonl(corpus_path, show_progress=getattr(config, 'show_progress', True))
     retriever = HybridRetriever(config)
     retriever.index(corpus)
     return retriever
@@ -508,6 +574,7 @@ def _build_cli_config(args) -> RetrieverConfig:
         bm25_weight=getattr(args, 'bm25_weight', 0.5),
         dense_weight=getattr(args, 'dense_weight', 0.5),
         top_k=getattr(args, 'top_k', 5),
+        show_progress=not getattr(args, 'no_progress', False),
     )
 
 
@@ -523,6 +590,7 @@ def main() -> None:
             '--passage-level', action='store_true', default=True,
             help='Treat each JSONL record as one passage; list-valued text is concatenated. Enabled by default.'
         )
+        p.add_argument('--no-progress', action='store_true', help='Disable tqdm progress bars and progress messages')
         p.add_argument('--index-dir', default='retriever_index/')
         p.add_argument('--top-k', type=int, default=5)
         p.add_argument('--bm25-weight', type=float, default=0.5)

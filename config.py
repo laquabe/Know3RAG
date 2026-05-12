@@ -86,6 +86,7 @@ class RetrieverConfig:
     dense_weight: float = 0.5
     bm25_weight: float = 0.5
     top_k: int = 5
+    show_progress: bool = True
 
 
 @dataclass
