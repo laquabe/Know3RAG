@@ -61,7 +61,26 @@ class EntityLinkerConfig:
 class RetrieverConfig:
     corpus_path: Optional[str] = None          # path to corpus JSONL: {id, text, title?}
     index_dir: str = "retriever_index/"
+
+    # Retrieval mode:
+    #   bm25    -> sparse BM25 only
+    #   colbert -> ColBERTv2 only
+    #   hybrid  -> BM25 + ColBERTv2 score fusion
+    #   sbert   -> legacy SentenceTransformer dense retrieval only
+    retrieval_mode: str = "hybrid"
+
+    # Legacy SentenceTransformer dense retriever config.
     sbert_model_path: str = ""                  # e.g. all-mpnet-base-v2
+
+    # ColBERTv2 config. `colbert_checkpoint` can be a HuggingFace model name
+    # such as colbert-ir/colbertv2.0 or a local checkpoint path.
+    colbert_checkpoint: str = "colbert-ir/colbertv2.0"
+    colbert_index_name: str = "know3rag_colbert"
+    colbert_root: str = ""                    # defaults to {index_dir}/colbert when empty
+    colbert_doc_maxlen: int = 180
+    colbert_nbits: int = 2
+    colbert_kmeans_niters: int = 4
+
     bm25_k1: float = 1.5
     bm25_b: float = 0.75
     dense_weight: float = 0.5
