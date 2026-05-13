@@ -689,6 +689,22 @@ def main() -> None:
         '--output-key', default='retrieved_passages',
         help='Field name used to store retrieval results in --query-file output'
     )
+    retrieve_parser.add_argument(
+        '--split', action='store_true',
+        help='Flatten --query-file retrieval output so each row contains one retrieved passage'
+    )
+    retrieve_parser.add_argument(
+        '--split-passage-key', default='passages',
+        help='Field name used to store the retrieved passage text when --split is enabled'
+    )
+    retrieve_parser.add_argument(
+        '--split-doc-key', default='retrieved_doc',
+        help='Field name used to store retrieved document metadata without text when --split is enabled'
+    )
+    retrieve_parser.add_argument(
+        '--split-rank-key', default='retrieval_rank',
+        help='Field name used to store 1-based retrieval rank when --split is enabled'
+    )
 
     args = parser.parse_args()
     cfg = _build_cli_config(args)
@@ -713,9 +729,23 @@ def main() -> None:
         results_batch = retriever.retrieve_batch(queries, top_k=args.top_k)
         output_rows = []
         for row, query, results in zip(rows, queries, results_batch):
-            new_row = dict(row)
-            new_row[args.output_key] = results if query else []
-            output_rows.append(new_row)
+            if args.split:
+                if not query:
+                    continue
+                for rank, doc in enumerate(results, start=1):
+                    new_row = dict(row)
+                    new_row[args.split_passage_key] = doc.get('text', '')
+                    new_row[args.split_doc_key] = {
+                        key: value
+                        for key, value in doc.items()
+                        if key != 'text'
+                    }
+                    new_row[args.split_rank_key] = rank
+                    output_rows.append(new_row)
+            else:
+                new_row = dict(row)
+                new_row[args.output_key] = results if query else []
+                output_rows.append(new_row)
         write_jsonl(args.output, output_rows, show_progress=cfg.show_progress)
         print(f"Wrote {len(output_rows)} retrieval records to {args.output}")
         return
