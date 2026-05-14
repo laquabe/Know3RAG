@@ -1,6 +1,6 @@
 """
 Unified LLM client interface merging code/api.py (async OpenAI/Qwen)
-and code/LLM_calls.py (local HuggingFace models).
+and refactored local HuggingFace model utilities.
 """
 from __future__ import annotations
 import asyncio
@@ -125,18 +125,18 @@ class QwenAPIClient(BaseLLMClient):
 
 class LocalLLMClient(BaseLLMClient):
     """
-    Wraps load_llm() + llm_call() from code/LLM_calls.py.
-    Supported model names: Mistral | Llama | GLM3 | GLM4 | Baichuan | Yi | Qwen | Zephyr | Qwen_api
+    Wraps local HuggingFace model loading and inference.
+    Supported model names: Mistral | Llama | GLM3 | GLM4 | Baichuan | Yi | Qwen | Zephyr
     """
 
     def __init__(self, config: LLMConfig):
         # Import lazily so the module can be imported without GPU
-        from LLM_calls import load_llm  # type: ignore
+        from utils.local_llm import load_local_llm
         self.model_name = config.local_model_name
         self.max_new_tokens = config.local_max_new_tokens
         self.do_sample = config.local_do_sample
 
-        loaded = load_llm(config.local_model_name, config.local_model_path)
+        loaded = load_local_llm(config.local_model_name, config.local_model_path)
 
         # load_llm returns either (model, tokenizer) or a pipeline
         if isinstance(loaded, tuple):
@@ -147,8 +147,8 @@ class LocalLLMClient(BaseLLMClient):
             self._model, self._tokenizer = None, None
 
     def call(self, messages: List[Dict], max_tokens: int = 1024) -> str:
-        from LLM_calls import llm_call  # type: ignore
-        return llm_call(
+        from utils.local_llm import call_local_llm
+        return call_local_llm(
             messages,
             self.model_name,
             model=self._model,
