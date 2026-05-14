@@ -41,7 +41,7 @@ class QuestionAnswerer:
         """
         Generate an answer for the question in *line* and store it under
         *answer_key*.  Works for hotpotQA, 2wikimultihopQA, PopQA, MMLU,
-        Temporal_QA.  Also extracts the parsed answer into line['answer'].
+        Temporal_QA.
         """
         messages = qa_prompt_mod.build_prompt(
             line,
@@ -52,8 +52,6 @@ class QuestionAnswerer:
         )
         response = self.llm.call(messages)
         line[answer_key] = response
-        pred, _ = self.extract_answer(line, answer_key=answer_key)
-        line['answer'] = pred
         return line
 
     def answer_batch(
@@ -64,7 +62,7 @@ class QuestionAnswerer:
         add_ref: bool = True,
         answer_key: str = DEFAULT_ANSWER_KEY,
     ) -> List[dict]:
-        """Batch version of answer(). Also extracts parsed answers into line['answer']."""
+        """Batch version of answer(). Stores raw LLM responses only."""
         batch_messages = [
             qa_prompt_mod.build_prompt(
                 line,
@@ -78,8 +76,6 @@ class QuestionAnswerer:
         responses = self.llm.call_batch(batch_messages)
         for line, resp in zip(lines, responses):
             line[answer_key] = resp
-            pred, _ = self.extract_answer(line, answer_key=answer_key)
-            line['answer'] = pred
         return lines
 
     def extract_answer(self, line: dict, answer_key: str = DEFAULT_ANSWER_KEY):
