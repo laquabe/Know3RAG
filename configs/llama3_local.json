@@ -1,0 +1,11 @@
+{
+  "llm": {
+    "local_model_name": "Llama",
+    "local_model_path": "/data/share_weight/Meta-Llama-3-8B-Instruct",
+    "local_max_new_tokens": 1024,
+    "local_do_sample": false
+  },
+  "pipeline": {
+    "dataset_name": "hotpotQA"
+  }
+}

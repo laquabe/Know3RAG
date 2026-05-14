@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-CONFIG="config.json"
+CONFIG="configs/llama3_local.json"
 DATASET="hotpotQA"
 INPUT_FILE="path/to/input_without_reference.jsonl"
 OUTPUT_FILE="path/to/output_qa_no_rag.jsonl"
