@@ -5,6 +5,82 @@ Source: prompt_fomular() in code/main.py (lines 319-391).
 from typing import Dict, List
 
 
+def _build_open_ended_user_prompt(
+    line: dict,
+    output_reason: bool = True,
+    add_ref: bool = True,
+) -> str:
+    """Build the unified open-ended QA user prompt used by QA and few-shot examples."""
+    if add_ref:
+        user_prompt = (
+            "Given the following question, references (may or may not be available), "
+            "explain your reasoning step-by-step based on the references and then provide "
+            "your best possible answer. If there is no reference or you find the reference "
+            "irrelevant, please provide an answer based on your knowledge.\n\n"
+        )
+        if line.get('reference'):
+            for ref_id, ref in enumerate(line['reference']):
+                user_prompt += "Reference {}: {}\n".format(ref_id + 1, ref)
+        else:
+            user_prompt += "Reference: No reference available.\n"
+        user_prompt += "\nQuestion: {}\n".format(line.get('question', line.get('Question', '')))
+        user_prompt += (
+            "\nYour response should end with \"The answer is [your_answer_text]\", "
+            "where the [your_answer_text] should be yes, no, or a few words directly "
+            "answering the question.\n Let's think step by step."
+        )
+        return user_prompt
+
+    if output_reason:
+        return (
+            "Given the following open-ended question, explain your reasoning step-by-step "
+            "and then provide your final answer.\n"
+            "Question: {}\nYour response should end with \"The answer is [your_answer_text]\". "
+            "Let's think step by step."
+        ).format(line.get('question', line.get('Question', '')))
+
+    return (
+        "Given the following question, provide a clear and concise answer. Your answer "
+        "should be \"yes,\" \"no,\" or a few words directly answering the question.\n"
+        "Question: {}\nYour response should be concise and directly related to the "
+        "question. End your response with: \"The answer is [your_answer].\""
+    ).format(line.get('question', line.get('Question', '')))
+
+
+def build_cot_messages(
+    examples: List[dict],
+    output_reason: bool = True,
+    add_ref: bool = True,
+) -> List[Dict]:
+    """
+    Build few-shot CoT messages from JSONL QA examples.
+
+    The examples are expected to use the unified open-ended QA schema:
+    {'question': str, 'reference': list[str], 'reason': str, 'answer': str}.
+    This format is shared across datasets for the QA stage.
+    """
+    messages: List[Dict] = []
+    for example in examples:
+        user_prompt = _build_open_ended_user_prompt(
+            example,
+            output_reason=output_reason,
+            add_ref=add_ref,
+        )
+        answer = example.get('answer', example.get('Answer', ''))
+        reason = example.get('reason', '')
+
+        if output_reason and reason:
+            assistant_prompt = "{}\n\nThe answer is {}.".format(reason, answer)
+        else:
+            assistant_prompt = "The answer is {}.".format(answer)
+
+        messages.extend([
+            {"role": "user", "content": user_prompt},
+            {"role": "assistant", "content": assistant_prompt},
+        ])
+    return messages
+
+
 def build_prompt(
     line: dict,
     dataset: str,
@@ -22,41 +98,27 @@ def build_prompt(
     """
     if dataset in ['hotpotQA', '2wikimultihopQA', 'PopQA']:
         if add_ref:
-            user_prompt = (
-                "Given the following question, references (may or may not be available), "
-                "explain your reasoning step-by-step based on the references and then provide "
-                "your best possible answer. If there is no reference or you find the reference "
-                "irrelevant, please provide an answer based on your knowledge.\n\n"
-            )
-            if line.get('reference'):
-                for ref_id, ref in enumerate(line['reference']):
-                    user_prompt += "Reference {}: {}\n".format(ref_id + 1, ref)
-            else:
-                user_prompt += "Reference: No reference available.\n"
-            user_prompt += "\nQuestion: {}\n".format(line.get('question', ''))
-            user_prompt += (
-                "\nYour response should end with \"The answer is [your_answer_text]\", "
-                "where the [your_answer_text] should be yes, no, or a few words directly "
-                "answering the question.\n Let's think step by step."
+            user_prompt = _build_open_ended_user_prompt(
+                line,
+                output_reason=output_reason,
+                add_ref=add_ref,
             )
             return [{"role": "user", "content": user_prompt}]
 
         elif output_reason:
-            user_prompt = (
-                "Given the following open-ended question, explain your reasoning step-by-step "
-                "and then provide your final answer.\n"
-                "Question: {}\nYour response should end with \"The answer is [your_answer_text]\". "
-                "Let's think step by step."
-            ).format(line.get('question', ''))
+            user_prompt = _build_open_ended_user_prompt(
+                line,
+                output_reason=output_reason,
+                add_ref=add_ref,
+            )
             return [{"role": "user", "content": user_prompt}]
 
         else:
-            user_prompt = (
-                "Given the following question, provide a clear and concise answer. Your answer "
-                "should be \"yes,\" \"no,\" or a few words directly answering the question.\n"
-                "Question: {}\nYour response should be concise and directly related to the "
-                "question. End your response with: \"The answer is [your_answer].\""
-            ).format(line.get('question', ''))
+            user_prompt = _build_open_ended_user_prompt(
+                line,
+                output_reason=output_reason,
+                add_ref=add_ref,
+            )
             return [
                 {"role": "user", "content": user_prompt},
                 {"role": "assistant", "content": "The answer is"},

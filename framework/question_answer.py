@@ -34,6 +34,7 @@ class QuestionAnswerer:
         self,
         line: dict,
         cot_prompt: str = None,
+        cot_examples: List[dict] = None,
         output_reason: bool = True,
         add_ref: bool = True,
         answer_key: str = DEFAULT_ANSWER_KEY,
@@ -43,13 +44,22 @@ class QuestionAnswerer:
         *answer_key*.  Works for hotpotQA, 2wikimultihopQA, PopQA, MMLU,
         Temporal_QA.
         """
-        messages = qa_prompt_mod.build_prompt(
+        messages = []
+        if cot_examples:
+            messages.extend(
+                qa_prompt_mod.build_cot_messages(
+                    cot_examples,
+                    output_reason=output_reason,
+                    add_ref=add_ref,
+                )
+            )
+        messages.extend(qa_prompt_mod.build_prompt(
             line,
             dataset=self.cfg.dataset_name,
             cot_prompt=cot_prompt,
             output_reason=output_reason,
             add_ref=add_ref,
-        )
+        ))
         response = self.llm.call(messages)
         line[answer_key] = response
         return line
@@ -58,13 +68,21 @@ class QuestionAnswerer:
         self,
         lines: List[dict],
         cot_prompt: str = None,
+        cot_examples: List[dict] = None,
         output_reason: bool = True,
         add_ref: bool = True,
         answer_key: str = DEFAULT_ANSWER_KEY,
     ) -> List[dict]:
         """Batch version of answer(). Stores raw LLM responses only."""
+        cot_messages = []
+        if cot_examples:
+            cot_messages = qa_prompt_mod.build_cot_messages(
+                cot_examples,
+                output_reason=output_reason,
+                add_ref=add_ref,
+            )
         batch_messages = [
-            qa_prompt_mod.build_prompt(
+            cot_messages + qa_prompt_mod.build_prompt(
                 line,
                 dataset=self.cfg.dataset_name,
                 cot_prompt=cot_prompt,
@@ -107,6 +125,8 @@ def main():
                         help="Answer without references (baseline)")
     parser.add_argument("--no-reason", action="store_true",
                         help="Skip chain-of-thought reasoning in answer")
+    parser.add_argument("--cot-file", default=None,
+                        help="JSONL file containing few-shot QA examples")
     parser.add_argument("--test", action="store_true", help="Process first 5 lines only")
     args = parser.parse_args()
 
@@ -120,12 +140,14 @@ def main():
     data = list(read_jsonl(args.input))
     if args.test:
         data = data[:5]
+    cot_examples = list(read_jsonl(args.cot_file)) if args.cot_file else None
 
     results = []
     for i, line in enumerate(data):
         print(f"[question_answer] {i + 1}/{len(data)}", end="\r")
         line = qa.answer(
             line,
+            cot_examples=cot_examples,
             add_ref=not args.no_ref,
             output_reason=not args.no_reason,
             answer_key=args.answer_key,

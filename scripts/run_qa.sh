@@ -8,6 +8,7 @@
 #   DATASET     override dataset_name in config
 #   ANSWER_KEY  key to store the answer under  (default: llm_response)
 #               Use llm_response_0, llm_response_1, ... for multi-turn
+#   COT_FILE    JSONL file containing few-shot QA examples
 
 set -euo pipefail
 python framework/question_answer.py \
@@ -15,4 +16,5 @@ python framework/question_answer.py \
   --input "$1" --output "$2" \
   --answer-key "${ANSWER_KEY:-llm_response}" \
   ${DATASET:+--dataset "$DATASET"} \
+  ${COT_FILE:+--cot-file "$COT_FILE"} \
   "${@:3}"
