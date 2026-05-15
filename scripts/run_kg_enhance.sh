@@ -1,6 +1,8 @@
 #!/bin/bash
-# Stage 1: KG query enhancement
-# Loads: EntityLinker + WikidataClient + KGEScorer (no LLM)
+# Legacy combined KG query enhancement
+# Loads: EntityLinker + WikidataClient + KGEScorer in one runtime (no LLM)
+# Prefer split scripts when these environments are incompatible:
+#   run_query_el.sh -> run_query_wikidata.sh -> run_relation_tail.sh -> run_tail_wikidata_card.sh
 # Usage: bash scripts/run_kg_enhance.sh <input.jsonl> <output.jsonl> [extra args]
 #
 # Environment variables:
@@ -8,9 +10,9 @@
 #   DATASET  override dataset_name in config
 
 set -euo pipefail
-python framework/query_enhance.py \
+"${PYTHON:-python3}" framework/query_enhance.py \
   --config "${CONFIG:-config.json}" \
   --input "$1" --output "$2" \
-  --step kg \
+  --stage kg \
   ${DATASET:+--dataset "$DATASET"} \
   "${@:3}"

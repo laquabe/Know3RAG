@@ -11,9 +11,9 @@
 #   DATASET  override dataset_name in config
 
 set -euo pipefail
-python framework/query_enhance.py \
+"${PYTHON:-python3}" framework/query_enhance.py \
   --config "${CONFIG:-config.json}" \
   --input "$1" --output "$2" \
-  --step llm \
+  --stage followup \
   ${DATASET:+--dataset "$DATASET"} \
   "${@:3}"
