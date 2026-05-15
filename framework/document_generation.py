@@ -4,7 +4,7 @@ Handles LLM-based reference generation, local retrieval, and knowledge card buil
 """
 import os
 import sys
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -43,7 +43,7 @@ class DocumentGenerator:
         have_choice: bool = False,
         add_entity: bool = False,
         cot_prompt: str = None,
-        output_key: str = 'pseudo_doc',
+        output_key: str = 'passages',
     ) -> dict:
         """
         Ask the LLM to write a reference paragraph for the question.
@@ -156,6 +156,84 @@ class DocumentGenerator:
         return line
 
     # ------------------------------------------------------------------
+    # Knowledge-card model reference generation
+    # ------------------------------------------------------------------
+
+    def _build_card_prompt(
+        self,
+        line: dict,
+        task: str = 'question',
+        add_entity: bool = False,
+    ) -> str:
+        """
+        Build the prompt used by a fine-tuned knowledge-card generation model.
+
+        This mirrors the legacy prompt shapes in code/card_infer.py while keeping
+        the output in the document-generation handoff format.
+        """
+        question = line.get('question', line.get('Question', ''))
+
+        if add_entity and line.get('query_entity'):
+            prompt = 'Knowledge:'
+            for ent in line.get('query_entity', {}).values():
+                entity = ent.get('entity', '')
+                description = ent.get('description', '')
+                if entity or description:
+                    prompt += ' {}, {}.'.format(entity, description)
+            prompt += '\nQuestion: {}'.format(question)
+            return prompt
+
+        if task == 'choice':
+            prompt = 'Question: {}'.format(question)
+            for choice in ['A', 'B', 'C', 'D']:
+                if choice in line:
+                    prompt += '\n{}. {}'.format(choice, line.get(choice, ''))
+            return prompt
+
+        return 'Question: {}'.format(question)
+
+    @staticmethod
+    def _strip_generated_prompt(generated_text: str, prompt: str) -> str:
+        """Remove the input prompt prefix from a text-generation pipeline output."""
+        if generated_text.startswith(prompt):
+            return generated_text[len(prompt):].strip()
+        return generated_text.strip()
+
+    def generate_card_reference(
+        self,
+        line: dict,
+        card_model: Any,
+        task: str = 'question',
+        add_entity: bool = False,
+        output_key: str = 'passages',
+    ) -> dict:
+        """
+        Generate a reference passage using a fine-tuned knowledge-card model.
+
+        The model is expected to be a HuggingFace text-generation pipeline. The
+        first generated sequence is written to *output_key*. If multiple
+        sequences are returned, the full list is also preserved under
+        ``{output_key}_list``.
+        """
+        prompt = self._build_card_prompt(line, task=task, add_entity=add_entity)
+        outputs = card_model(prompt)
+
+        generations: List[str] = []
+        for obj in outputs or []:
+            if isinstance(obj, dict):
+                text = obj.get('generated_text', '')
+            else:
+                text = str(obj)
+            text = self._strip_generated_prompt(text, prompt)
+            if text:
+                generations.append(text)
+
+        line[output_key] = generations[0] if generations else ''
+        if len(generations) > 1:
+            line[f'{output_key}_list'] = generations
+        return line
+
+    # ------------------------------------------------------------------
     # Reference merging
     # ------------------------------------------------------------------
 
@@ -204,13 +282,29 @@ def main():
     parser.add_argument("--query-key", default="question",
                         help="Line field used as retrieval query")
     parser.add_argument(
-        "--step", choices=["llm", "retrieve", "all"], default="all",
-        help="llm: LLM reference only; retrieve: retriever only; all: both"
+        "--step", choices=["llm", "card", "retrieve", "all"], default="all",
+        help="llm: LLM reference only; card: knowledge-card model only; "
+             "retrieve: retriever only; all: enabled sources"
     )
     parser.add_argument("--have-choice", action="store_true",
                         help="MMLU multiple-choice mode")
     parser.add_argument("--add-entity", action="store_true",
                         help="Include entity context in LLM prompt")
+    parser.add_argument("--llm-output-key", default="passages",
+                        help="Output field for LLM generated reference")
+    parser.add_argument("--card-model-path", default=None,
+                        help="Path to a fine-tuned knowledge-card generation model")
+    parser.add_argument("--card-device", type=int, default=-1,
+                        help="Device id for the knowledge-card model (-1 for CPU)")
+    parser.add_argument("--card-task", choices=["question", "entity", "choice"],
+                        default="question",
+                        help="Prompt format for the knowledge-card model")
+    parser.add_argument("--card-output-key", default="passages",
+                        help="Output field for knowledge-card model reference")
+    parser.add_argument("--card-max-new-tokens", type=int, default=128,
+                        help="Max new tokens generated by the knowledge-card model")
+    parser.add_argument("--card-k", type=int, default=1,
+                        help="Number of knowledge-card generations to return")
     parser.add_argument("--test", action="store_true", help="Process first 5 lines only")
     args = parser.parse_args()
 
@@ -218,10 +312,30 @@ def main():
     if args.dataset:
         cfg.pipeline.dataset_name = args.dataset
 
+    card_model_path = args.card_model_path or cfg.pipeline.knowledge_card_model_path
+
     run_llm = args.step in ("llm", "all")
+    run_card = args.step in ("card", "all") and bool(card_model_path)
     run_retrieve = args.step in ("retrieve", "all") and cfg.pipeline.use_retriever
 
+    if args.step == "card" and not card_model_path:
+        raise ValueError(
+            "--step card requires --card-model-path or pipeline.knowledge_card_model_path"
+        )
+
     llm = create_llm_client(cfg.llm) if run_llm else None
+    card_model = None
+    if run_card:
+        import transformers
+        card_model = transformers.pipeline(
+            'text-generation',
+            model=card_model_path,
+            device=args.card_device,
+            num_return_sequences=args.card_k,
+            do_sample=True,
+            max_new_tokens=args.card_max_new_tokens,
+            trust_remote_code=True,
+        )
     retriever = None
     if run_retrieve:
         retriever = HybridRetriever(cfg.retriever)
@@ -241,7 +355,20 @@ def main():
                 line,
                 have_choice=args.have_choice,
                 add_entity=args.add_entity,
+                output_key=args.llm_output_key,
             )
+            if args.llm_output_key == "passages":
+                line["pseudo_doc"] = line.get("passages", "")
+        if run_card:
+            line = gen.generate_card_reference(
+                line,
+                card_model=card_model,
+                task=args.card_task,
+                add_entity=args.add_entity,
+                output_key=args.card_output_key,
+            )
+            if args.card_output_key == "passages":
+                line["pseudo_doc_card"] = line.get("passages", "")
         if run_retrieve:
             line = gen.retrieve_with_entities(line)
 
@@ -249,6 +376,8 @@ def main():
         candidates = []
         if line.get("pseudo_doc"):
             candidates.append({"text": line["pseudo_doc"], "source": "llm"})
+        if run_card and line.get("pseudo_doc_card"):
+            candidates.append({"text": line["pseudo_doc_card"], "source": "knowledge_card"})
         for doc in line.get("retrieved_passages", []):
             candidates.append({"text": doc.get("text", ""), "source": "retriever",
                                 "score": doc.get("score", 0.0)})

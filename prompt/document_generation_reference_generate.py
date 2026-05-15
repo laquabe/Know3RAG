@@ -106,14 +106,14 @@ def build_prompt(
             "enough information to help the next person frame their answer concisely and "
             "accurately.\n"
         )
-        if line.get('query_entity'):
+        if add_entity and line.get('query_entity'):
             user_prompt += (
                 "To make your reference passages more accurate, I'm going to provide "
                 "you with some entities inside the question that you can refer to them, "
                 "but they're not necessarily accurate.\n"
             )
         user_prompt += "Question: {}\n".format(line.get('question', ''))
-        if line.get('query_entity'):
+        if add_entity and line.get('query_entity'):
             user_prompt += "\nRelated Entities:\n"
             for i, ent in enumerate(line['query_entity'].values()):
                 user_prompt += "{}. {}: {}\n".format(i + 1, ent['entity'], ent['description'])
