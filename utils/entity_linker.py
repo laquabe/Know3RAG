@@ -15,6 +15,11 @@ if PROJECT_ROOT not in sys.path:
 from config import EntityLinkerConfig
 
 
+def _log_progress(message: str) -> None:
+    """Print concise EntityLinker progress immediately during lazy loading."""
+    print(f"[entity_linker] {message}", flush=True)
+
+
 class EntityLinker:
     """
     Wraps spaCy + entityLinker or ReFinED for entity linking and
@@ -54,6 +59,7 @@ class EntityLinker:
             return
 
         engine = self._get_engine()
+        _log_progress(f"Loading entity linker engine: {engine}")
         if engine == 'spacy':
             self._load_spacy()
         elif engine == 'refined':
@@ -62,13 +68,17 @@ class EntityLinker:
             raise ValueError(f"Unsupported entity linker engine: {engine}")
 
         self._el_loaded = True
+        _log_progress("Entity linker model loaded.")
 
     def _load_spacy(self) -> None:
         import spacy
 
+        _log_progress(f"Loading spaCy model: {self.config.spacy_model}")
         self._nlp = spacy.load(self.config.spacy_model)
         if 'entityLinker' not in self._nlp.pipe_names:
+            _log_progress("Adding spaCy entityLinker pipeline ...")
             self._nlp.add_pipe('entityLinker', last=True)
+        _log_progress("spaCy entity linker ready.")
 
     def _load_refined(self) -> None:
         from refined.inference.processor import Refined
@@ -80,7 +90,15 @@ class EntityLinker:
         if getattr(self.config, 'refined_device', ''):
             kwargs['device'] = self.config.refined_device
 
+        device = kwargs.get('device', 'auto')
+        _log_progress(
+            "Loading ReFinED model: "
+            f"model_name={self.config.refined_model_name}, "
+            f"entity_set={self.config.refined_entity_set}, "
+            f"device={device}"
+        )
         self._refined = Refined.from_pretrained(**kwargs)
+        _log_progress("ReFinED model ready.")
 
     def _load_relation_resources(self) -> None:
         if self._relation_loaded:
@@ -88,20 +106,28 @@ class EntityLinker:
 
         from sentence_transformers import SentenceTransformer
 
+        _log_progress(f"Loading SentenceTransformer: {self.config.sbert_model_path}")
         self._sent_model = SentenceTransformer(self.config.sbert_model_path)
 
         if self.config.relation_file:
+            _log_progress(f"Loading relation file: {self.config.relation_file}")
             self._load_kg_relations(self.config.relation_file)
         if self.config.relation_template_file:
+            _log_progress(f"Loading relation templates: {self.config.relation_template_file}")
             self._template_info, self._template_dict = self._read_relation_template(
                 self.config.relation_template_file
             )
         if self.config.relation_sentence_template_file:
+            _log_progress(
+                "Loading relation sentence templates: "
+                f"{self.config.relation_sentence_template_file}"
+            )
             self._template_sentence_info, self._template_sentence_dict = self._read_relation_template(
                 self.config.relation_sentence_template_file
             )
 
         self._relation_loaded = True
+        _log_progress("Relation resources loaded.")
 
     def _load_kg_relations(self, relation_file: str) -> None:
         import json
@@ -122,7 +148,9 @@ class EntityLinker:
                 )
                 self._tmp2wiki[len(r_des_list)] = line['wiki_id']
                 r_des_list.append(relation_des)
+        _log_progress(f"Encoding {len(r_des_list)} relation descriptions ...")
         self._r_des_embedding = self._sent_model.encode(r_des_list)
+        _log_progress("Relation description embeddings ready.")
 
     @staticmethod
     def _read_relation_template(template_file: str) -> Tuple[List, Dict]:

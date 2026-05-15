@@ -17,6 +17,11 @@ import prompt.query_enhance_selfask as selfask_mod
 import prompt.query_enhance_generate_question as gen_question_mod
 
 
+def _log_progress(message: str) -> None:
+    """Print concise stage progress immediately for long-running CLI jobs."""
+    print(f"[query_enhance] {message}", flush=True)
+
+
 class QueryEnhancer:
     """
     Enriches a question with KG entity context and generates follow-up queries
@@ -288,6 +293,7 @@ def main():
     parser.add_argument("--test", action="store_true", help="Process first 5 lines only")
     args = parser.parse_args()
 
+    _log_progress(f"Loading config from {args.config}")
     cfg = load_config(args.config)
     if args.dataset:
         cfg.pipeline.dataset_name = args.dataset
@@ -295,6 +301,8 @@ def main():
     stage = args.stage
     if stage is None:
         stage = "followup" if args.step == "llm" else args.step
+
+    _log_progress(f"Stage: {stage}")
 
     needs_llm = stage in ("followup", "all")
     needs_linker = stage in ("query-el", "relation-tail", "kg", "all")
@@ -307,23 +315,31 @@ def main():
     # Instantiate only the models actually needed
     llm = None
     if needs_llm:
+        _log_progress("Initializing LLM client ...")
         from utils.llm_client import create_llm_client
         llm = create_llm_client(cfg.llm)
+        _log_progress("LLM client initialized.")
 
     linker = None
     if needs_linker:
+        _log_progress("Initializing EntityLinker ...")
         from utils.entity_linker import EntityLinker
         linker = EntityLinker(cfg.entity_linker)
+        _log_progress("EntityLinker initialized. Model loading may happen on first use.")
 
     kge = None
     if needs_kge:
+        _log_progress("Initializing KGEScorer ...")
         from utils.kge_scorer import KGEScorer
         kge = KGEScorer(cfg.kge)
+        _log_progress("KGEScorer initialized.")
 
     wikidata = None
     if needs_wikidata:
+        _log_progress("Initializing WikidataClient ...")
         from utils.wikidata_client import WikidataClient
         wikidata = WikidataClient()
+        _log_progress("WikidataClient initialized.")
 
     enhancer = QueryEnhancer(
         llm=llm,
@@ -333,13 +349,16 @@ def main():
         pipeline_cfg=cfg.pipeline,
     )
 
+    _log_progress(f"Reading input: {args.input}")
     data = list(_read_jsonl(args.input))
     if args.test:
         data = data[:5]
+        _log_progress("Test mode enabled: processing first 5 records only.")
+    _log_progress(f"Loaded {len(data)} records.")
 
     results = []
     for i, line in enumerate(data):
-        print(f"[query_enhance] {i + 1}/{len(data)}", end="\r")
+        _log_progress(f"Processing {i + 1}/{len(data)}")
         if stage == "query-el":
             line = enhancer.run_query_el(line, question_key=args.question_key)
         elif stage == "query-wikidata":
@@ -366,9 +385,9 @@ def main():
             raise ValueError(f"Unsupported query enhancement stage: {stage}")
         results.append(line)
 
-    print()
+    _log_progress(f"Writing output: {args.output}")
     _write_jsonl(args.output, results)
-    print(f"Wrote {len(results)} records to {args.output}")
+    _log_progress(f"Wrote {len(results)} records to {args.output}")
 
 
 def _read_jsonl(path: str):
