@@ -311,6 +311,11 @@ def main():
         "query-wikidata", "tail-wikidata", "tail-wikidata-card", "kg", "all"
     )
     needs_card = stage in ("tail-wikidata-card", "kg", "all")
+    relation_sentence_templates = {}
+    if needs_card:
+        relation_sentence_templates = _load_relation_sentence_templates(
+            cfg.entity_linker.relation_sentence_template_file
+        )
 
     # Instantiate only the models actually needed
     llm = None
@@ -369,8 +374,7 @@ def main():
             line = enhancer.run_tail_wikidata(line)
         elif stage == "tail-wikidata-card":
             line = enhancer.run_tail_wikidata(line)
-            line = _append_tail_info_to_kg_tail_pred(line)
-            line = _generate_knowledge_card(line)
+            line = _simplify_tail_wikidata_card(line, relation_sentence_templates)
         elif stage == "followup":
             line = enhancer.generate_followup_question(line)
         elif stage == "kg":
@@ -404,6 +408,170 @@ def _write_jsonl(path: str, records: list) -> None:
     with open(path, 'w', encoding='utf-8') as f:
         for rec in records:
             f.write(json.dumps(rec, ensure_ascii=False) + '\n')
+
+
+def _load_relation_sentence_templates(template_file: str) -> dict:
+    """
+    Lightweight loader for relation sentence templates.
+
+    Returns {wiki_relation_id: [template_record, ...]}. This avoids
+    instantiating EntityLinker / SentenceTransformer in the final
+    tail-wikidata-card stage, where we only need deterministic template
+    rendering from already-predicted triples.
+    """
+    if not template_file:
+        return {}
+    if not os.path.exists(template_file):
+        _log_progress(
+            "Relation sentence template file not found; skip triple sentence "
+            f"rendering: {template_file}"
+        )
+        return {}
+
+    templates = {}
+    with open(template_file, encoding='utf-8') as f:
+        for raw in f:
+            raw = raw.strip()
+            if not raw:
+                continue
+            item = json.loads(raw)
+            wiki_id = item.get('wiki_id')
+            if wiki_id:
+                templates.setdefault(wiki_id, []).append(item)
+    return templates
+
+
+def _normalize_sentence(text: str) -> str:
+    """Normalize a short description/sentence for compact card output."""
+    return ' '.join(str(text or '').strip().split())
+
+
+def _append_sentence(description: str, sentence: str) -> str:
+    """Append a rendered triple sentence to an entity description cleanly."""
+    description = _normalize_sentence(description)
+    sentence = _normalize_sentence(sentence)
+    if not sentence:
+        return description
+    if sentence in description:
+        return description
+    if not description:
+        return sentence.rstrip('.')
+    return f"{description.rstrip('.')}. {sentence.rstrip('.')}"
+
+
+def _simple_entity_record(entity_id: str, entity: str, description: str) -> dict:
+    """Build the compact entity record used by the final enhanced output."""
+    return {
+        'id': str(entity_id),
+        'entity': _normalize_sentence(entity),
+        'description': _normalize_sentence(description),
+    }
+
+
+def _unique_entity_key(entity_map: dict, preferred_key: str, entity_id: str) -> str:
+    """Choose a deterministic query_entity key without overwriting records."""
+    key = _normalize_sentence(preferred_key) or str(entity_id)
+    if key not in entity_map:
+        return key
+    existing = entity_map.get(key, {})
+    if existing.get('id') == entity_id:
+        return key
+    return f"{key} ({entity_id})"
+
+
+def _iter_kg_triples(line: dict):
+    """Yield (head_id, relation_id, tail_id) triples from kg_tail_pred safely."""
+    for item in line.get('kg_tail_pred', []) or []:
+        if isinstance(item, (list, tuple)) and len(item) >= 3:
+            yield str(item[0]), str(item[1]), str(item[2])
+
+
+def _simplify_tail_wikidata_card(
+    line: dict,
+    relation_sentence_templates: dict,
+) -> dict:
+    """
+    Final compact wiki-enhanced card builder.
+
+    Keeps only basic entity-card information in query_entity. For original
+    query entities, predicted KG triples are rendered with
+    relation_sentence_template and appended to descriptions. Predicted tail
+    entities are also added as compact {id, entity, description} records.
+    Intermediate KG/Wikidata fields are removed to keep JSONL output short.
+    """
+    original_entities = line.get('query_entity', {}) or {}
+    tail_info = line.get('tail_entity_info', {}) or {}
+
+    # Pass 1: build compact head records.
+    head_by_id: dict = {}
+    compact_entities: dict = {}
+    for mention, ent_info in original_entities.items():
+        ent_id = str(ent_info.get('id', '') or '')
+        label = ent_info.get('entity') or mention
+        record = _simple_entity_record(
+            ent_id,
+            label,
+            ent_info.get('description', ''),
+        )
+        key = _unique_entity_key(compact_entities, mention, ent_id)
+        compact_entities[key] = record
+        if ent_id:
+            head_by_id[ent_id] = key
+
+    # Pass 2: append template-rendered sentences to head descriptions only.
+    for head_id, relation_id, tail_id in _iter_kg_triples(line):
+        if head_id == tail_id:
+            continue
+        head_key = head_by_id.get(head_id)
+        if not head_key:
+            continue
+        templates = relation_sentence_templates.get(relation_id, [])
+        if not templates:
+            continue
+        sentence_template = templates[0].get('sentence_template', '')
+        if not sentence_template:
+            continue
+        if tail_id in head_by_id:
+            tail_label = compact_entities[head_by_id[tail_id]].get('entity', tail_id)
+        else:
+            tail = tail_info.get(tail_id, {}) or {}
+            tail_label = tail.get('labels') or tail.get('label') or tail_id
+        head_entity = compact_entities[head_key].get('entity', head_key)
+        sentence = sentence_template.format_map({
+            'subject': head_entity,
+            'object': tail_label,
+        })
+        compact_entities[head_key]['description'] = _append_sentence(
+            compact_entities[head_key].get('description', ''),
+            sentence,
+        )
+
+    # Pass 3: add tail records as-is, never overwriting a head.
+    seen_tail_ids: set = set()
+    for _, _, tail_id in _iter_kg_triples(line):
+        if not tail_id or tail_id in head_by_id or tail_id in seen_tail_ids:
+            continue
+        seen_tail_ids.add(tail_id)
+        tail = tail_info.get(tail_id, {}) or {}
+        tail_label = tail.get('labels') or tail.get('label') or tail_id
+        tail_desc = tail.get('descriptions') or tail.get('description') or ''
+        tail_key = _unique_entity_key(compact_entities, tail_label, tail_id)
+        compact_entities[tail_key] = _simple_entity_record(
+            tail_id,
+            tail_label,
+            tail_desc,
+        )
+
+    line['query_entity'] = compact_entities
+    for key in (
+        'query_relation',
+        'kg_tail_pred',
+        'kg_tail_id_set',
+        'tail_entity_info',
+        'pseudo_doc_entity',
+    ):
+        line.pop(key, None)
+    return line
 
 
 def _generate_knowledge_card(

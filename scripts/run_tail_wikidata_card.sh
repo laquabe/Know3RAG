@@ -1,8 +1,8 @@
 #!/bin/bash
 # Query enhancement stage: fetch tail Wikidata info and build KG knowledge card.
 
-python framework/query_enhance.py \
+python3 framework/query_enhance.py \
   --config config.json \
-  --input path/to/input_relation_tail.jsonl \
-  --output path/to/output_tail_wikidata_card.jsonl \
+  --input datasets/test/turn0_el_add_tail.jsonl \
+  --output datasets/test/turn0_query_enhanced.jsonl \
   --stage tail-wikidata-card
