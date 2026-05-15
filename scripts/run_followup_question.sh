@@ -1,19 +1,8 @@
 #!/bin/bash
-# Optional (multi-turn): Generate follow-up retrieval question from current answer
-# Loads: LLM only
-# Usage: bash scripts/run_followup_question.sh <input.jsonl> <output.jsonl> [extra args]
-#
-# Reads:  question, reference, llm_response
-# Writes: new_question  (pass as --query-key new_question to run_doc_generate.sh)
-#
-# Environment variables:
-#   CONFIG   path to config JSON  (default: config.json)
-#   DATASET  override dataset_name in config
+# Query enhancement stage: generate follow-up retrieval question.
 
-set -euo pipefail
-"${PYTHON:-python3}" framework/query_enhance.py \
-  --config "${CONFIG:-config.json}" \
-  --input "$1" --output "$2" \
-  --stage followup \
-  ${DATASET:+--dataset "$DATASET"} \
-  "${@:3}"
+python framework/query_enhance.py \
+  --config config.json \
+  --input path/to/input_tail_wikidata_card.jsonl \
+  --output path/to/output_followup_question.jsonl \
+  --stage followup

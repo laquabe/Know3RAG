@@ -1,12 +1,8 @@
 #!/bin/bash
-# Stage: fetch Wikidata claims/descriptions for query entities
-# Loads: WikidataClient only
-# Usage: bash scripts/run_query_wikidata.sh <input.jsonl> <output.jsonl> [extra args]
+# Query enhancement stage: fetch Wikidata claims/descriptions for query entities.
 
-set -euo pipefail
-"${PYTHON:-python3}" framework/query_enhance.py \
-  --config "${CONFIG:-config.json}" \
-  --input "$1" --output "$2" \
-  --stage query-wikidata \
-  ${DATASET:+--dataset "$DATASET"} \
-  "${@:3}"
+python framework/query_enhance.py \
+  --config config.json \
+  --input path/to/input_query_el.jsonl \
+  --output path/to/output_query_wikidata.jsonl \
+  --stage query-wikidata
