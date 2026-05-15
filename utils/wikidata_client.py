@@ -15,10 +15,23 @@ class WikidataClient:
     Thin wrapper around the Wikidata EntityData REST API.
     """
     BASE_URL = "https://www.wikidata.org/wiki/Special:EntityData/{entity_id}.json"
+    DEFAULT_USER_AGENT = (
+        "Know3RAG/0.1 (https://github.com/laquabe/Know3RAG; "
+        "research prototype) Python requests"
+    )
 
-    def __init__(self, timeout: int = 10, process_num: int = 5):
+    def __init__(
+        self,
+        timeout: int = 10,
+        process_num: int = 5,
+        user_agent: Optional[str] = None,
+    ):
         self.timeout = timeout
         self.process_num = process_num
+        self.headers = {
+            "User-Agent": user_agent or self.DEFAULT_USER_AGENT,
+            "Accept": "application/json",
+        }
 
     def query_entity(self, entity_id: str) -> Dict:
         """
@@ -27,10 +40,21 @@ class WikidataClient:
         """
         url = self.BASE_URL.format(entity_id=entity_id)
         try:
-            response = requests.get(url, timeout=self.timeout)
+            response = requests.get(url, timeout=self.timeout, headers=self.headers)
+            if response.status_code != 200:
+                print(
+                    f"[wikidata_client] Warning: failed to query {entity_id}: "
+                    f"HTTP {response.status_code} - {response.text[:200]}",
+                    flush=True,
+                )
+                return {}
             data = response.json()
             entity_data = data['entities'][entity_id]
-        except Exception:
+        except Exception as exc:
+            print(
+                f"[wikidata_client] Warning: failed to parse/query {entity_id}: {exc}",
+                flush=True,
+            )
             return {}
 
         try:
