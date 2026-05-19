@@ -74,6 +74,51 @@ def get_query_from_record(record: Dict, query_key: str = 'question') -> str:
     return ''
 
 
+def build_entity_enhanced_queries(
+    record: Dict,
+    query_key: str = 'question',
+    entity_key: str = 'query_entity',
+    include_base_query: bool = True,
+) -> List[str]:
+    """
+    Build retrieval queries from the base question and query_entity context.
+
+    The base query is kept as-is. For each linked entity, an additional query
+    is formed as: "{question} {entity} {description}" so retrieval keeps the
+    original question intent while adding entity background.
+    """
+    base_query = get_query_from_record(record, query_key=query_key)
+    queries: List[str] = []
+    if include_base_query and base_query:
+        queries.append(base_query)
+
+    for mention, ent_info in (record.get(entity_key, {}) or {}).items():
+        if not isinstance(ent_info, dict):
+            continue
+        entity = str(ent_info.get('entity') or mention or '').strip()
+        description = str(ent_info.get('description') or '').strip()
+        pieces = [base_query, entity, description]
+        query = ' '.join(piece for piece in pieces if piece).strip()
+        if query and query not in queries:
+            queries.append(query)
+
+    return queries
+
+
+def merge_retrieval_results(results_batch: List[List[Dict]], top_k: int) -> List[Dict]:
+    """Merge multi-query retrieval results by doc id, keeping the best score."""
+    all_results: Dict[str, Dict] = {}
+    for results in results_batch:
+        for doc in results:
+            doc_id = str(doc.get('id', ''))
+            if not doc_id:
+                continue
+            score = float(doc.get('score', 0.0))
+            if doc_id not in all_results or score > float(all_results[doc_id].get('score', 0.0)):
+                all_results[doc_id] = dict(doc)
+    return sorted(all_results.values(), key=lambda d: d.get('score', 0.0), reverse=True)[:top_k]
+
+
 # ---------------------------------------------------------------------------
 # Corpus
 # ---------------------------------------------------------------------------
@@ -623,6 +668,25 @@ class HybridRetriever:
             results.append(self._format_results([(idx, combined[idx]) for idx in top_indices]))
         return results
 
+    def retrieve_with_entities(
+        self,
+        record: Dict,
+        query_key: str = 'question',
+        entity_key: str = 'query_entity',
+        top_k: Optional[int] = None,
+    ) -> List[Dict]:
+        """Retrieve with question + query_entity enhanced multi-query fusion."""
+        k = top_k or self.config.top_k
+        queries = build_entity_enhanced_queries(
+            record,
+            query_key=query_key,
+            entity_key=entity_key,
+            include_base_query=True,
+        )
+        if not queries:
+            return []
+        return merge_retrieval_results(self.retrieve_batch(queries, top_k=k), top_k=k)
+
 
 def build_index_from_jsonl(corpus_path: str, config: RetrieverConfig) -> HybridRetriever:
     """
@@ -686,6 +750,14 @@ def main() -> None:
     retrieve_parser.add_argument('--output', help='Output JSONL path for --query-file results')
     retrieve_parser.add_argument('--query-key', default='question', help='Field name used as query in --query-file')
     retrieve_parser.add_argument(
+        '--add-entity', action='store_true',
+        help='Use query_entity to build entity-enhanced retrieval queries for --query-file'
+    )
+    retrieve_parser.add_argument(
+        '--entity-key', default='query_entity',
+        help='Field name containing linked query entities for --add-entity'
+    )
+    retrieve_parser.add_argument(
         '--output-key', default='retrieved_passages',
         help='Field name used to store retrieval results in --query-file output'
     )
@@ -726,7 +798,23 @@ def main() -> None:
             desc='Loading query file',
         )
         queries = [get_query_from_record(row, args.query_key) for row in rows]
-        results_batch = retriever.retrieve_batch(queries, top_k=args.top_k)
+        if args.add_entity:
+            results_batch = [
+                retriever.retrieve_with_entities(
+                    row,
+                    query_key=args.query_key,
+                    entity_key=args.entity_key,
+                    top_k=args.top_k,
+                )
+                for row in _progress(
+                    rows,
+                    enabled=cfg.show_progress,
+                    desc='Entity-enhanced retrieval',
+                    unit='queries',
+                )
+            ]
+        else:
+            results_batch = retriever.retrieve_batch(queries, top_k=args.top_k)
         output_rows = []
         for row, query, results in zip(rows, queries, results_batch):
             if args.split:

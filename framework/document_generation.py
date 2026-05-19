@@ -92,6 +92,8 @@ class DocumentGenerator:
     def retrieve_with_entities(
         self,
         line: dict,
+        query_key: str = 'question',
+        entity_key: str = 'query_entity',
         top_k: Optional[int] = None,
         output_key: str = 'retrieved_passages',
     ) -> dict:
@@ -104,26 +106,12 @@ class DocumentGenerator:
             return line
 
         k = top_k or self.cfg.top_k_references
-        base_q = line.get('question', line.get('Question', ''))
-
-        # Build entity-enriched queries
-        queries = [base_q]
-        for mention, ent_info in line.get('query_entity', {}).items():
-            desc = ent_info.get('description', '')
-            if desc:
-                queries.append("{} {}".format(mention, desc))
-
-        # Batch retrieve, de-duplicate by doc id
-        all_results: Dict[str, dict] = {}
-        for results in self.retriever.retrieve_batch(queries, top_k=k):
-            for doc in results:
-                doc_id = str(doc['id'])
-                if doc_id not in all_results or doc['score'] > all_results[doc_id]['score']:
-                    all_results[doc_id] = doc
-
-        # Sort by score descending, trim to top_k
-        sorted_docs = sorted(all_results.values(), key=lambda d: d['score'], reverse=True)[:k]
-        line[output_key] = sorted_docs
+        line[output_key] = self.retriever.retrieve_with_entities(
+            line,
+            query_key=query_key,
+            entity_key=entity_key,
+            top_k=k,
+        )
         return line
 
     # ------------------------------------------------------------------
@@ -379,7 +367,10 @@ def main():
                 output_key=args.card_output_key,
             )
         if run_retrieve:
-            line = gen.retrieve_with_entities(line)
+            if args.add_entity:
+                line = gen.retrieve_with_entities(line, query_key=args.query_key)
+            else:
+                line = gen.retrieve_passages(line, query_key=args.query_key)
 
         if args.step in ("retrieve", "all"):
             # Build candidate_passages as List[Dict] only for retrieval / combined mode.
