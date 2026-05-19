@@ -10,6 +10,7 @@ def build_prompt(
     have_choice: bool = False,
     add_entity: bool = False,
     cot_prompt: str = None,
+    cot_messages: List[Dict] = None,
 ) -> Union[List[Dict], str]:
     """
     Prompt for generating a reference paragraph for a question.
@@ -97,28 +98,73 @@ def build_prompt(
         return cot_block + question_block
 
     else:
-        # Open-ended: single user turn, no shot
-        user_prompt = (
-            "I have a list of open-ended questions, and I'd like you to write a reference "
-            "paragraph for each question. These paragraphs should provide sufficient "
-            "background, key concepts, or context to guide the next person in answering "
-            "the question effectively. You do not need to provide an answer directly, just "
-            "enough information to help the next person frame their answer concisely and "
-            "accurately.\n"
-        )
-        if add_entity and line.get('query_entity'):
-            user_prompt += (
-                "To make your reference passages more accurate, I'm going to provide "
-                "you with some entities inside the question that you can refer to them, "
-                "but they're not necessarily accurate.\n"
-            )
-        user_prompt += "Question: {}\n".format(line.get('question', ''))
-        if add_entity and line.get('query_entity'):
-            user_prompt += "\nRelated Entities:\n"
-            for i, ent in enumerate(line['query_entity'].values()):
-                user_prompt += "{}. {}: {}\n".format(i + 1, ent['entity'], ent['description'])
+        # Open-ended: optional few-shot demos + current user turn
+        messages = list(cot_messages or [])
+        messages.append({
+            "role": "user",
+            "content": build_open_reference_user_prompt(line, add_entity=add_entity),
+        })
+        return messages
+
+
+def build_open_reference_user_prompt(line: dict, add_entity: bool = False) -> str:
+    """Build the open-ended reference-generation user prompt for one sample."""
+    user_prompt = (
+        "I have a list of open-ended questions, and I'd like you to write a reference "
+        "paragraph for each question. These paragraphs should provide sufficient "
+        "background, key concepts, or context to guide the next person in answering "
+        "the question effectively. You do not need to provide an answer directly, just "
+        "enough information to help the next person frame their answer concisely and "
+        "accurately.\n"
+    )
+    if add_entity and line.get('query_entity'):
         user_prompt += (
-            'You should just output "[reference_paragraph]", '
-            "where the [reference_paragraph] is the reference you write.\n"
+            "To make your reference passages more accurate, I'm going to provide "
+            "you with some entities inside the question that you can refer to them, "
+            "but they're not necessarily accurate.\n"
         )
-        return [{"role": "user", "content": user_prompt}]
+    user_prompt += "Question: {}\n".format(line.get('question', line.get('Question', '')))
+    if add_entity and line.get('query_entity'):
+        user_prompt += "\nRelated Entities:\n"
+        for i, ent in enumerate(line['query_entity'].values()):
+            user_prompt += "{}. {}: {}\n".format(
+                i + 1, ent.get('entity', ''), ent.get('description', '')
+            )
+    user_prompt += (
+        'You should just output "[reference_paragraph]", '
+        "where the [reference_paragraph] is the reference you write.\n"
+    )
+    return user_prompt
+
+
+def build_open_reference_cot_messages(
+    examples: List[Dict],
+    add_entity: bool = False,
+) -> List[Dict]:
+    """Build few-shot messages from open-QA reference-generation JSONL examples."""
+    system_prompt = (
+        "You are an intelligent assistant specialized in generating reference "
+        "paragraphs for open-ended questions. Your task is to provide clear and "
+        "concise reference paragraphs that contextualize the question and guide "
+        "the answerer in understanding the context, key concepts, and relevant "
+        "details. These paragraphs are meant to provide sufficient information "
+        "for the next person to answer the question accurately and thoroughly.\n"
+        "Hints:\n"
+        "1. Provide background information that is relevant to the question.\n"
+        "2. Clarify any key terms or concepts that might be important for answering the question.\n"
+        "3. Provide context such as important dates, figures, or events if applicable.\n"
+        "4. Keep the paragraph concise but detailed enough to guide the next person in framing an answer.\n"
+        "5. If there are provided entities and the entities mentioned in the question are accurate, "
+        "ensure they are consistent with your reference. If the entities are inaccurate, you may disregard them."
+    )
+    messages: List[Dict] = [{"role": "system", "content": system_prompt}]
+    for ex in examples:
+        pseudo_doc = str(ex.get('query_pseudo_doc', '')).strip()
+        if not pseudo_doc:
+            continue
+        messages.append({
+            "role": "user",
+            "content": build_open_reference_user_prompt(ex, add_entity=add_entity),
+        })
+        messages.append({"role": "assistant", "content": pseudo_doc})
+    return messages

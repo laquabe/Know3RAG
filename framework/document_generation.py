@@ -43,6 +43,7 @@ class DocumentGenerator:
         have_choice: bool = False,
         add_entity: bool = False,
         cot_prompt: str = None,
+        cot_messages: List[Dict[str, str]] = None,
         output_key: str = 'passages',
     ) -> dict:
         """
@@ -54,6 +55,7 @@ class DocumentGenerator:
             have_choice=have_choice,
             add_entity=add_entity,
             cot_prompt=cot_prompt,
+            cot_messages=cot_messages,
         )
         response = self.llm.call(prompt)
         # Strip "Reference: " prefix if present (MMLU / open-ended)
@@ -292,6 +294,8 @@ def main():
                         help="Include entity context in LLM prompt")
     parser.add_argument("--llm-output-key", default="passages",
                         help="Output field for LLM generated reference")
+    parser.add_argument("--cot-file", default=None,
+                        help="JSONL file containing open-QA reference-generation few-shot examples")
     parser.add_argument("--card-model-path", default=None,
                         help="Path to a fine-tuned knowledge-card generation model")
     parser.add_argument("--card-device", type=int, default=-1,
@@ -321,6 +325,14 @@ def main():
     if args.step == "card" and not card_model_path:
         raise ValueError(
             "--step card requires --card-model-path or pipeline.knowledge_card_model_path"
+        )
+
+    cot_messages = None
+    if run_llm and args.cot_file and not args.have_choice:
+        cot_examples = list(read_jsonl(args.cot_file))
+        cot_messages = ref_gen_mod.build_open_reference_cot_messages(
+            cot_examples,
+            add_entity=args.add_entity,
         )
 
     llm = create_llm_client(cfg.llm) if run_llm else None
@@ -355,10 +367,9 @@ def main():
                 line,
                 have_choice=args.have_choice,
                 add_entity=args.add_entity,
+                cot_messages=cot_messages,
                 output_key=args.llm_output_key,
             )
-            if args.llm_output_key == "passages":
-                line["pseudo_doc"] = line.get("passages", "")
         if run_card:
             line = gen.generate_card_reference(
                 line,
@@ -367,23 +378,22 @@ def main():
                 add_entity=args.add_entity,
                 output_key=args.card_output_key,
             )
-            if args.card_output_key == "passages":
-                line["pseudo_doc_card"] = line.get("passages", "")
         if run_retrieve:
             line = gen.retrieve_with_entities(line)
 
-        # Build candidate_passages as List[Dict] (handoff format for downstream scripts)
-        candidates = []
-        if line.get("pseudo_doc"):
-            candidates.append({"text": line["pseudo_doc"], "source": "llm"})
-        if run_card and line.get("pseudo_doc_card"):
-            candidates.append({"text": line["pseudo_doc_card"], "source": "knowledge_card"})
-        for doc in line.get("retrieved_passages", []):
-            candidates.append({"text": doc.get("text", ""), "source": "retriever",
-                                "score": doc.get("score", 0.0)})
-        if line.get("pseudo_doc_entity"):
-            candidates.append({"text": line["pseudo_doc_entity"], "source": "kg"})
-        line["candidate_passages"] = [c for c in candidates if c["text"]]
+        if args.step in ("retrieve", "all"):
+            # Build candidate_passages as List[Dict] only for retrieval / combined mode.
+            candidates = []
+            if args.step == "all" and line.get(args.llm_output_key):
+                candidates.append({"text": line[args.llm_output_key], "source": "llm"})
+            if args.step == "all" and run_card and line.get(args.card_output_key):
+                candidates.append({"text": line[args.card_output_key], "source": "knowledge_card"})
+            for doc in line.get("retrieved_passages", []):
+                candidates.append({"text": doc.get("text", ""), "source": "retriever",
+                                    "score": doc.get("score", 0.0)})
+            if line.get("pseudo_doc_entity"):
+                candidates.append({"text": line["pseudo_doc_entity"], "source": "kg"})
+            line["candidate_passages"] = [c for c in candidates if c["text"]]
 
         results.append(line)
 
