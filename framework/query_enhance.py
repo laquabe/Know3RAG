@@ -405,6 +405,9 @@ def _read_jsonl(path: str):
 
 def _write_jsonl(path: str, records: list) -> None:
     """Local JSONL writer to keep split runtime imports minimal."""
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
         for rec in records:
             f.write(json.dumps(rec, ensure_ascii=False) + '\n')

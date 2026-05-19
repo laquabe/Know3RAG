@@ -4,6 +4,7 @@ No project-internal imports — this is a leaf module.
 """
 from __future__ import annotations
 import json
+import os
 import re
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
@@ -288,7 +289,10 @@ def read_jsonl(path: str) -> Iterator[Dict]:
 
 
 def write_jsonl(path: str, records: List[Dict]) -> None:
-    """Writes a list of dicts to a JSONL file."""
+    """Writes a list of dicts to a JSONL file, creating parent dirs if needed."""
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
         for rec in records:
             f.write(json.dumps(rec, ensure_ascii=False) + '\n')
