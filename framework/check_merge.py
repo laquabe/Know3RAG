@@ -75,6 +75,28 @@ def iter_records(directory: str) -> Iterable[Dict[str, Any]]:
             print(f"[check_merge] skip {path}: {e}", file=sys.stderr)
 
 
+def first_record(directory: str) -> Optional[Dict[str, Any]]:
+    """Return the first JSONL record found in ``directory``, or None."""
+    for rec in iter_records(directory):
+        return rec
+    return None
+
+
+def compute_carry_over_keys(
+    rel_sample: Optional[Dict[str, Any]],
+    factual_sample: Optional[Dict[str, Any]],
+    passage_key: str,
+) -> List[str]:
+    """Keys present in BOTH directories' records, minus the per-passage key.
+
+    Order follows the rel-check record so the output column order is stable.
+    """
+    if not rel_sample or not factual_sample:
+        return []
+    factual_keys = set(factual_sample.keys())
+    return [k for k in rel_sample.keys() if k in factual_keys and k != passage_key]
+
+
 def build_factual_lookup(
     directory: str,
     id_key: str,
@@ -106,8 +128,15 @@ def merge_directories(
         factual_check_dir, id_key, passage_key, factual_key
     )
 
+    carry_over_keys = compute_carry_over_keys(
+        first_record(rel_check_dir),
+        first_record(factual_check_dir),
+        passage_key,
+    )
+
     # Group candidates by query id, preserving first-seen order of ids.
     grouped: Dict[str, List[Tuple[Optional[float], str]]] = {}
+    carry_over: Dict[str, Dict[str, Any]] = {}
     id_order: List[str] = []
 
     for rec in iter_records(rel_check_dir):
@@ -125,6 +154,7 @@ def merge_directories(
         if rid not in grouped:
             grouped[rid] = []
             id_order.append(rid)
+            carry_over[rid] = {k: rec.get(k) for k in carry_over_keys}
         grouped[rid].append((score, str(passage)))
 
     results: List[Dict[str, Any]] = []
@@ -135,7 +165,11 @@ def merge_directories(
             key=lambda sp: (sp[0] is None, sp[0] if sp[0] is not None else 0.0)
         )
         reference = [passage for _, passage in candidates[:top_k]]
-        results.append({"id": rid, "reference": reference})
+        record: Dict[str, Any] = dict(carry_over[rid])
+        # Ensure id is present even when it wasn't in the carry-over intersection.
+        record.setdefault(id_key, rid)
+        record["reference"] = reference
+        results.append(record)
 
     return results
 
