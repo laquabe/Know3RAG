@@ -42,15 +42,19 @@ class RelevanceChecker:
         check_key: str = 'passages',
         have_choice: bool = False,
         output_key: str = 'local_check',
+        raw_output_key: str = 'local_check_raw',
     ) -> dict:
         """
         Ask the LLM whether the passage at *check_key* is reliable for the
-        question.  Writes a bool to ``line[output_key]``.
+        question.  Writes the raw LLM response to ``line[raw_output_key]`` and
+        the parsed bool to ``line[output_key]``.
         """
         messages = local_check_mod.build_prompt(
             line, have_choice=have_choice, check_key=check_key
         )
         response = self.llm.call(messages)
+        if raw_output_key:
+            line[raw_output_key] = response
         line[output_key] = local_check_str(response)
         return line
 
@@ -60,6 +64,7 @@ class RelevanceChecker:
         check_key: str = 'passages',
         have_choice: bool = False,
         output_key: str = 'local_check',
+        raw_output_key: str = 'local_check_raw',
     ) -> List[dict]:
         """Batch version of llm_check_passage()."""
         batch_messages = [
@@ -68,6 +73,8 @@ class RelevanceChecker:
         ]
         responses = self.llm.call_batch(batch_messages)
         for line, resp in zip(lines, responses):
+            if raw_output_key:
+                line[raw_output_key] = resp
             line[output_key] = local_check_str(resp)
         return lines
 
@@ -88,6 +95,7 @@ def main():
     parser.add_argument("--question-key", default="question", help="Input field containing the question")
     parser.add_argument("--check-key", default="passages", help="Input field to check for relevance/reliability")
     parser.add_argument("--output-key", default="local_check", help="Output boolean field for the check result")
+    parser.add_argument("--raw-output-key", default="local_check_raw", help="Output field for the raw LLM response; set to empty string to skip")
     parser.add_argument("--have-choice", action="store_true", help="MMLU mode")
     parser.add_argument("--test", action="store_true", help="Process first 5 lines only")
     args = parser.parse_args()
@@ -122,6 +130,7 @@ def main():
             check_key=args.check_key,
             have_choice=args.have_choice,
             output_key=args.output_key,
+            raw_output_key=args.raw_output_key,
         )
         results.append(line)
 

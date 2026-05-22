@@ -7,4 +7,5 @@ python framework/relevance_check.py \
   --output path/to/output_relevance_checked.jsonl \
   --check-key passages \
   --output-key local_check \
+  --raw-output-key local_check_raw \
   --question-key question
