@@ -702,6 +702,7 @@ def main():
     parser.add_argument("--output", required=True)
     parser.add_argument("--dataset", default=None)
     parser.add_argument("--mode", choices=["triple", "fast"], default="triple")
+    parser.add_argument("--check-key", default="passages", help="Input field containing the passage to fact-check")
     parser.add_argument(
         "--step", choices=["extract", "map", "score", "all"], default="all",
         help="triple mode: extract/map/score/all; fast mode: extract=EL+pair build, score=pair KGE, all=both"
@@ -736,11 +737,11 @@ def main():
     for i, line in enumerate(data):
         print(f"[factual_check --mode {args.mode} --step {args.step}] {i + 1}/{len(data)}", end="\r")
 
-        # Each input record contains a single passage under line['passages'].
+        # Each input record contains a single passage under args.check_key.
         # Factual-check fields are therefore written directly at the record level.
         if args.mode == "triple":
             if run_extract:
-                line = checker.extract_triples(line, src_key="passages", ent_key="passage_entity")
+                line = checker.extract_triples(line, src_key=args.check_key, ent_key="passage_entity")
             if run_map:
                 line = checker.map_triples_to_ids(line)
             if run_score:
@@ -748,7 +749,7 @@ def main():
                 line["factual_score"] = checker.compute_factual_score(line)
         else:
             if run_extract:
-                line = checker.extract_entity_pairs(line, src_key="passages", ent_key="passage_entity")
+                line = checker.extract_entity_pairs(line, src_key=args.check_key, ent_key="passage_entity")
             if run_score:
                 line = checker.score_entity_pairs(line)
                 line["fast_factual_score"] = checker.compute_fast_factual_score(line)
