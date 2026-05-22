@@ -1,15 +1,26 @@
 #!/bin/bash
-# Merge check stage: combine relevance and factual check results.
+# Check-merge stage: combine per-passage relevance and factual results,
+# then keep the top-k passages per query id.
+#
+# Inputs are DIRECTORIES (non-recursive). Every regular file in each
+# directory is read as JSONL. Records are aligned by (id, passages).
+#
+# Filtering and ranking per query id:
+#   - drop passages where local_check is false
+#   - sort remaining passages by factual score ascending (lower is better)
+#   - passages with score == None are placed last, but can still fill top-k
+#   - keep the first --top-k passages
 #
 # Factual-key selection:
-#   - If factual check used triple mode, keep: --factual-key factual_score
-#   - If factual check used fast mode, change to: --factual-key fast_factual_score
+#   - triple mode output: --factual-key factual_score
+#   - fast mode output:   --factual-key fast_factual_score
 
 python framework/check_merge.py \
-  --input path/to/input_factual_checked.jsonl \
+  --rel-check-dir path/to/rel_check_dir \
+  --factual-check-dir path/to/factual_check_dir \
   --output path/to/output_check_merged.jsonl \
+  --top-k 5 \
+  --id-key id \
+  --passage-key passages \
   --relevance-key local_check \
-  --factual-key factual_score \
-  --threshold 10000 \
-  --factual-output-key factual_check \
-  --output-key final_check
+  --factual-key factual_score

@@ -1,15 +1,22 @@
 """
-Merge relevance-check and factual-check outputs.
+Merge relevance-check and factual-check outputs at the directory level.
 
-This stage does not call LLMs or KG models.  It only combines existing boolean
-and numeric fields into final pass/fail fields that downstream QA or filtering
-steps can consume.
+This stage does not call LLMs or KG models.  It scans two directories:
+one with relevance-check JSONL files, one with factual-check JSONL files.
+Records are aligned by ``(id, normalized_passages)`` so that the relevance
+boolean and the factual score for the same passage can be combined.
+
+For each query id, passages with ``local_check == False`` are dropped.  The
+remaining passages are sorted by factual score (lower is better; ``None``
+goes last but may still fill up to ``top_k``).  The top ``top_k`` passages
+are emitted as ``reference`` alongside the query id.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
-from typing import Any, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -39,71 +46,130 @@ def parse_optional_float(value: Any) -> Optional[float]:
         return None
 
 
-def merge_checks(
-    line: dict,
-    relevance_key: str = "local_check",
-    factual_key: str = "factual_score",
-    threshold: float = 10000.0,
-    factual_output_key: str = "factual_check",
-    output_key: str = "final_check",
-    missing_factual_pass: bool = False,
-) -> dict:
-    """
-    Combine relevance and factual checks.
+def normalize_passage(passage: Any) -> str:
+    """Lightweight whitespace normalization for passage alignment."""
+    if passage is None:
+        return ""
+    return " ".join(str(passage).split())
 
-    Relevance passes when ``line[relevance_key]`` is truthy.  Factual check
-    passes when ``line[factual_key] <= threshold``; lower factual scores are
-    better in this project.  If the factual score is missing, the default is to
-    fail unless ``missing_factual_pass`` is set.
-    """
-    relevance_pass = parse_bool(line.get(relevance_key))
-    factual_score = parse_optional_float(line.get(factual_key))
-    factual_pass = missing_factual_pass if factual_score is None else factual_score <= threshold
 
-    line[factual_output_key] = factual_pass
-    line[output_key] = relevance_pass and factual_pass
-    return line
+def list_jsonl_files(directory: str) -> List[str]:
+    """Non-recursively list regular files in ``directory``."""
+    if not os.path.isdir(directory):
+        raise NotADirectoryError(f"Not a directory: {directory}")
+    paths = []
+    for name in sorted(os.listdir(directory)):
+        full = os.path.join(directory, name)
+        if os.path.isfile(full):
+            paths.append(full)
+    return paths
+
+
+def iter_records(directory: str) -> Iterable[Dict[str, Any]]:
+    """Yield JSONL records from every file in ``directory`` (non-recursive)."""
+    for path in list_jsonl_files(directory):
+        try:
+            for rec in read_jsonl(path):
+                yield rec
+        except json.JSONDecodeError as e:
+            print(f"[check_merge] skip {path}: {e}", file=sys.stderr)
+
+
+def build_factual_lookup(
+    directory: str,
+    id_key: str,
+    passage_key: str,
+    factual_key: str,
+) -> Dict[Tuple[str, str], Optional[float]]:
+    """Map ``(id, normalized_passage) -> factual_score`` from factual-check files."""
+    lookup: Dict[Tuple[str, str], Optional[float]] = {}
+    for rec in iter_records(directory):
+        rid = rec.get(id_key)
+        if rid is None:
+            continue
+        key = (str(rid), normalize_passage(rec.get(passage_key)))
+        lookup[key] = parse_optional_float(rec.get(factual_key))
+    return lookup
+
+
+def merge_directories(
+    rel_check_dir: str,
+    factual_check_dir: str,
+    top_k: int,
+    id_key: str,
+    passage_key: str,
+    relevance_key: str,
+    factual_key: str,
+) -> List[Dict[str, Any]]:
+    """Merge relevance + factual checks and pick top-k per query id."""
+    factual_lookup = build_factual_lookup(
+        factual_check_dir, id_key, passage_key, factual_key
+    )
+
+    # Group candidates by query id, preserving first-seen order of ids.
+    grouped: Dict[str, List[Tuple[Optional[float], str]]] = {}
+    id_order: List[str] = []
+
+    for rec in iter_records(rel_check_dir):
+        rid = rec.get(id_key)
+        if rid is None:
+            continue
+        rid = str(rid)
+        if not parse_bool(rec.get(relevance_key)):
+            continue
+        passage = rec.get(passage_key)
+        if passage is None:
+            continue
+        key = (rid, normalize_passage(passage))
+        score = factual_lookup.get(key)
+        if rid not in grouped:
+            grouped[rid] = []
+            id_order.append(rid)
+        grouped[rid].append((score, str(passage)))
+
+    results: List[Dict[str, Any]] = []
+    for rid in id_order:
+        candidates = grouped[rid]
+        # Sort by score ascending; None goes last but is still eligible for top-k.
+        candidates.sort(
+            key=lambda sp: (sp[0] is None, sp[0] if sp[0] is not None else 0.0)
+        )
+        reference = [passage for _, passage in candidates[:top_k]]
+        results.append({"id": rid, "reference": reference})
+
+    return results
 
 
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Know3RAG check merge stage")
-    parser.add_argument("--input", required=True)
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--relevance-key", default="local_check")
-    parser.add_argument("--factual-key", default="factual_score")
-    parser.add_argument("--threshold", type=float, default=10000.0)
-    parser.add_argument("--factual-output-key", default="factual_check")
-    parser.add_argument("--output-key", default="final_check")
-    parser.add_argument(
-        "--missing-factual-pass",
-        action="store_true",
-        help="Treat missing factual scores as passing instead of failing",
+    parser = argparse.ArgumentParser(
+        description="Know3RAG check-merge stage (directory mode)"
     )
-    parser.add_argument("--test", action="store_true", help="Process first 5 lines only")
+    parser.add_argument("--rel-check-dir", required=True,
+                        help="Directory of relevance-check JSONL files")
+    parser.add_argument("--factual-check-dir", required=True,
+                        help="Directory of factual-check JSONL files")
+    parser.add_argument("--output", required=True,
+                        help="Output JSONL path (one record per query id)")
+    parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument("--id-key", default="id")
+    parser.add_argument("--passage-key", default="passages")
+    parser.add_argument("--relevance-key", default="local_check")
+    parser.add_argument("--factual-key", default="factual_score",
+                        help="triple mode: factual_score; fast mode: fast_factual_score")
     args = parser.parse_args()
 
-    data = list(read_jsonl(args.input))
-    if args.test:
-        data = data[:5]
+    results = merge_directories(
+        rel_check_dir=args.rel_check_dir,
+        factual_check_dir=args.factual_check_dir,
+        top_k=args.top_k,
+        id_key=args.id_key,
+        passage_key=args.passage_key,
+        relevance_key=args.relevance_key,
+        factual_key=args.factual_key,
+    )
 
-    results = []
-    for i, line in enumerate(data):
-        print(f"[check_merge] {i + 1}/{len(data)}", end="\r")
-        results.append(
-            merge_checks(
-                line,
-                relevance_key=args.relevance_key,
-                factual_key=args.factual_key,
-                threshold=args.threshold,
-                factual_output_key=args.factual_output_key,
-                output_key=args.output_key,
-                missing_factual_pass=args.missing_factual_pass,
-            )
-        )
-
-    print()
     write_jsonl(args.output, results)
     print(f"Wrote {len(results)} records to {args.output}")
 
