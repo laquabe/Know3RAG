@@ -33,7 +33,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--codex-root', type=Path, required=True,
                         help='CoDEx repository where libkge_setup.sh completed')
-    parser.add_argument('--model', choices=['transe', 'conve', 'rescal'], default='transe')
+    parser.add_argument('--model', choices=['transe', 'conve', 'rescal', 'complex'], default='transe')
     parser.add_argument('--task', choices=['triple-classification', 'link-prediction'],
                         default='triple-classification', help='Official experiment configuration to use')
     parser.add_argument('--size', choices=['s', 'm', 'l'], default='m',

@@ -14,11 +14,11 @@ python scripts/train_codex_kge.py \
 ```
 
 `--codex-root` 改成服务器上的 CoDEx 仓库路径；`--model` 可改为
-`transe`、`conve`、`rescal`。`--task` 支持 `triple-classification`（默认）和
+`transe`、`conve`、`rescal`、`complex`（ComplEx）。`--task` 支持 `triple-classification`（默认）和
 `link-prediction`。`--size` 支持 `s`、`m`（默认）、`l`，读取
 `models/<task>/codex-<size>/<model>/config.yaml`。
 
-官方配置支持情况（以上三个模型均适用）：
+官方配置支持情况（以上四个模型均适用）：
 
 | 任务 | 可选规模 |
 | --- | --- |
@@ -74,6 +74,22 @@ checkpoint；第一次 checkpoint 写出前中断的实验应另选输出目录�
 它不会自动运行作者的分类评估、拟合分类阈值，或修改 Know3RAG 的 factual-check 配置。
 接入前还需要使用 CoDEx 对应实体/关系映射，并在自己的验证数据上校准评分。
 官方来源：https://github.com/tsafavi/codex/tree/master/models
+
+## ComplEx 的图谱规模实验
+
+S/M/L 均使用 `link-prediction` 配置；这些模型也能输出 factual check 所需的
+三元组分数。每次只训练一个规模，修改 `--size` 为 `s`、`m` 或 `l`：
+
+```bash
+python scripts/train_codex_kge.py \
+  --codex-root /data/xkliu/KGE_code/codex \
+  --task link-prediction --size s --model complex --device cuda:0
+```
+
+不要把 S/M 的 classification 配置和 L 的 prediction 配置混合作为纯规模对比。
+官方各规模配置分别调过超参数，因此默认脚本得到的是各规模官方配置下的结果，
+并非只改变图谱规模的严格控制实验。严格控制需要统一模型维度、训练策略、
+超参数选择预算/规则、随机种子和下游评估流程，并明确实体覆盖变化的影响。
 
 ## 旧版 Ax / SQLAlchemy 导入冲突
 
