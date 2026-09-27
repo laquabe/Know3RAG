@@ -124,6 +124,10 @@ The specific code execution sequence is as follows：
 - Reference check: `utils.py --merge_files` to merge result, `utils,py --pair_merge` to filter the reference. `utils.py` to concat old references.
 
 ## Evaluation
+For local JSONL answer evaluation using HotpotQA answer EM/F1 semantics, run
+`python scripts/eval_hotpot.py --input result/merged.jsonl --answer-key llm_response --output result/metrics.json --details result/per_question.jsonl`.
+See [evaluation usage](scripts/eval_hotpot.md) for answer extraction, gold-file alignment, and limitations.
+
 For [hotpotQA](https://github.com/hotpotqa/hotpot) and [2wikimultihopQA](https://github.com/Alab-NII/2wikimultihop), we use the the official evaluation. Please see the evaluation in their repo.
 
 For PopQA, we process the PopQA data into 2wikimultihopQA form and test it with the officail evaluation of 2wikimultihopQA.

@@ -144,16 +144,18 @@ def _strip_wrapping(text: str) -> str:
 
 
 def _extract_suffix_by_prefixes(text: str, prefixes: List[str]) -> Optional[str]:
-    lower_text = text.lower()
     best_suffix = None
     best_pos = -1
     for prefix in prefixes:
-        idx = lower_text.rfind(prefix.lower())
-        if idx != -1 and idx >= best_pos:
-            suffix = text[idx + len(prefix):].strip()
+        # Match whole phrases, including optional colon / Markdown wrappers.
+        pattern = r'\b' + re.escape(prefix) + r'(?!\w)[\s*:：`]*'
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            idx = match.start()
+            suffix = text[match.end():].strip()
             if suffix:
-                best_suffix = suffix
-                best_pos = idx
+                if idx >= best_pos:
+                    best_suffix = suffix
+                    best_pos = idx
     return best_suffix
 
 
