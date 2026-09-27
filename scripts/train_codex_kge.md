@@ -71,3 +71,23 @@ checkpoint；第一次 checkpoint 写出前中断的实验应另选输出目录�
 它不会自动运行作者的分类评估、拟合分类阈值，或修改 Know3RAG 的 factual-check 配置。
 接入前还需要使用 CoDEx 对应实体/关系映射，并在自己的验证数据上校准评分。
 官方来源：https://github.com/tsafavi/codex/tree/master/models
+
+## 旧版 Ax / SQLAlchemy 导入冲突
+
+若启动时报 `SQAGeneratorRun.arms` / `MappedAnnotationError`，是旧 Ax 的 ORM
+注解与 SQLAlchemy 2.x 不兼容。即使只训练单个模型，旧 LibKGE 也会在导入
+`kge.job` 时导入 Ax 搜索模块，从而触发此错误。
+在服务器的 `kge_codex` 环境中运行：
+
+```bash
+conda activate kge_codex
+python -m pip install "SQLAlchemy==1.4.54"
+python -m pip check
+python -c "import sqlalchemy; print(sqlalchemy.__version__); import kge.cli; print('LibKGE import OK')"
+```
+
+这是针对此导入错误的兼容性修复，不保证其余旧依赖均兼容。
+修复后重跑原训练命令。上述导入错误发生在训练目录创建之前，通常无需 `--resume`。
+不要重新执行整个 `libkge_setup.sh`，也不要删除数据。
+新版启动器会在创建运行记录之前检查实际 CLI 导入链，失败时给出对应提示；
+`--dry-run` 仍只检查配置和文件，不检查运行环境。

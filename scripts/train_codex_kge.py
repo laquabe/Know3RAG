@@ -9,6 +9,26 @@ import subprocess
 import sys
 
 
+def check_runtime(kge, env):
+    """Check the real CLI import chain before creating any run artifacts."""
+    probe = subprocess.run([sys.executable, '-c', 'import kge.cli'], cwd=str(kge),
+                           env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           universal_newlines=True)
+    if probe.returncode:
+        print(probe.stdout, file=sys.stderr, end='')
+        if ('SQAGeneratorRun' in probe.stdout and
+                ('MappedAnnotationError' in probe.stdout or 'Mapped[]' in probe.stdout)):
+            print('\nDependency conflict: legacy Ax ORM code is incompatible with SQLAlchemy 2.x.\n'
+                  'In this Python environment, run:\n  {} -m pip install "SQLAlchemy==1.4.54"\n'
+                  'Then verify: {} -c "import kge.cli; print(\'LibKGE import OK\')"'
+                  .format(shlex.quote(sys.executable), shlex.quote(sys.executable)), file=sys.stderr)
+        else:
+            print('\nLibKGE import check failed. Fix the traceback above in this Python environment.',
+                  file=sys.stderr)
+        return False
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--codex-root', type=Path, required=True,
@@ -103,15 +123,19 @@ def main():
     if args.dry_run:
         return 0
 
+    env = os.environ.copy()
+    env['PYTHONPATH'] = str(kge) + os.pathsep + env.get('PYTHONPATH', '')
+    env['PYTHONUNBUFFERED'] = '1'
+    print('Checking LibKGE runtime imports...', flush=True)
+    if not check_runtime(kge, env):
+        return 1
+
     output.parent.mkdir(parents=True, exist_ok=True)
     if not args.resume:
         manifest = output.parent / (output.name + '.launcher.json')
         manifest.write_text(json.dumps({'model': args.model, 'task': args.task, 'size': args.size,
                                         'codex_root': str(root),
                                         'command': command}, indent=2) + '\n')
-    env = os.environ.copy()
-    env['PYTHONPATH'] = str(kge) + os.pathsep + env.get('PYTHONPATH', '')
-    env['PYTHONUNBUFFERED'] = '1'
     log = output.parent / (output.name + '.console.log')
     print('Console log: {}'.format(log), flush=True)
     with log.open('a') as stream:
