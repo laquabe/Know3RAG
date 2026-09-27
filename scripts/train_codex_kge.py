@@ -79,7 +79,20 @@ def main():
         parser.error('Official configuration dataset does not match --size: ' + str(configured_dataset))
     actual_model = config.get('model')
     if actual_model == 'reciprocal_relations_model':
-        actual_model = config['reciprocal_relations_model']['base_model']['type']
+        wrapper = config.get('reciprocal_relations_model', {})
+        base = wrapper.get('base_model', {})
+        actual_model = config.get('reciprocal_relations_model.base_model.type',
+                                  base.get('type'))
+        if actual_model is None:
+            # Official ConvE configs omit type and inherit it from LibKGE.
+            defaults_path = kge / 'kge' / 'model' / 'reciprocal_relations_model.yaml'
+            if not defaults_path.is_file():
+                parser.error('Cannot resolve inherited base model: missing ' + str(defaults_path))
+            with defaults_path.open() as stream:
+                defaults = yaml.safe_load(stream)
+            actual_model = defaults.get('reciprocal_relations_model', {}).get('base_model', {}).get('type')
+            if actual_model is None:
+                parser.error('Cannot resolve base_model.type from ' + str(defaults_path))
     if actual_model != args.model:
         parser.error('Official configuration does not match --model: ' + str(actual_model))
     with (dataset / 'dataset.yaml').open() as stream:

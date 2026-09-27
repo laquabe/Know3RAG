@@ -36,6 +36,9 @@ python scripts/train_codex_kge.py \
 
 保留官方模型结构（包括 reciprocal relations 包装）、优化器和训练策略，
 不把 `model` 配置粗暴覆盖成模型名称。
+官方 ConvE 配置可能省略 `reciprocal_relations_model.base_model.type`；
+启动器会读取本地 LibKGE 的 `kge/model/reciprocal_relations_model.yaml` 默认值，
+再检查模型是否匹配，不要求源配置重复声明继承的字段。
 
 先检查文件并预览命令：加 `--dry-run`。此选项不验证 CUDA 或实际加载模型。
 可用 `--epochs 5 --batch-size 64` 做短训练；这会改变官方实验设置。
