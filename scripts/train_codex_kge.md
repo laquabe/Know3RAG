@@ -8,19 +8,30 @@
 python scripts/train_codex_kge.py \
   --codex-root /data/xkliu/codex \
   --task triple-classification \
+  --size m \
   --model transe \
   --device cuda:0
 ```
 
 `--codex-root` 改成服务器上的 CoDEx 仓库路径；`--model` 可改为
 `transe`、`conve`、`rescal`。`--task` 支持 `triple-classification`（默认）和
-`link-prediction`，读取 `models/<task>/codex-m/<model>/config.yaml`。
+`link-prediction`。`--size` 支持 `s`、`m`（默认）、`l`，读取
+`models/<task>/codex-<size>/<model>/config.yaml`。
+
+官方配置支持情况（以上三个模型均适用）：
+
+| 任务 | 可选规模 |
+| --- | --- |
+| triple-classification | s、m |
+| link-prediction | s、m、l |
+
+`triple-classification --size l` 会明确报错，不会借用其他任务的配置。
 例如训练 link prediction 版本：
 
 ```bash
 python scripts/train_codex_kge.py \
   --codex-root /data/xkliu/codex \
-  --task link-prediction --model conve --device cuda:0
+  --task link-prediction --size l --model conve --device cuda:0
 ```
 
 保留官方模型结构（包括 reciprocal relations 包装）、优化器和训练策略，
@@ -33,7 +44,7 @@ python scripts/train_codex_kge.py \
 默认输出：
 
 ```text
-<codex-root>/local-runs/<task>/codex-m/<model>/
+<codex-root>/local-runs/<task>/codex-<size>/<model>/
 ```
 
 该目录由 LibKGE 保存配置、日志和 checkpoint；相邻的
@@ -45,13 +56,14 @@ python scripts/train_codex_kge.py \
 
 ```bash
 python scripts/train_codex_kge.py \
-  --codex-root /data/xkliu/codex --model transe --device cuda:0 \
+  --codex-root /data/xkliu/codex --task triple-classification --size m \
+  --model transe --device cuda:0 \
   --resume --epochs 400
 ```
 
 新的独立实验可指定 `--output /data/xkliu/runs/transe-run2`；恢复该实验时也要
-传入同一个 `--output`。恢复时 `--task` 和 `--model` 必须与原实验一致；
-旧版脚本创建的记录按 `triple-classification` 处理。
+传入同一个 `--output`。恢复时 `--task`、`--size` 和 `--model` 必须与原实验一致；
+旧记录缺少 task 时按 `triple-classification` 处理，缺少 size 时按 `m` 处理。
 脚本拒绝覆盖已有输出目录。断点恢复需要已保存的
 checkpoint；第一次 checkpoint 写出前中断的实验应另选输出目录重新启动。
 
