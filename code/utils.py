@@ -6,6 +6,7 @@ import numpy as np
 import copy
 import argparse
 import os
+import math
 MAX_SCORE = 10000
 
 def read_data(dataset_name, file_path):
@@ -382,7 +383,53 @@ def local_check_str(response:str):
     else:
         return False
 
-def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, tgt_key_name=None, src_key_name=None):
+def dynamic_threshold(theta, c, turn):
+    """Eq. (3): theta_t = theta_0 * (c / (1 + exp(1 - theta_0))) ** t.
+
+    turn is the old answer's zero-based iteration, not the iteration budget.
+    """
+    if theta is None or not math.isfinite(theta) or theta < 0:
+        raise ValueError('theta must be a finite, non-negative base threshold')
+    if not math.isfinite(c) or c <= 0:
+        raise ValueError('c must be finite and positive')
+    if not isinstance(turn, int) or isinstance(turn, bool) or turn < 0:
+        raise ValueError('T must be a non-negative integer (old answer iteration)')
+    try:
+        threshold = theta * (c / (1 + math.exp(1 - theta))) ** turn
+    except OverflowError as exc:
+        raise ValueError('dynamic threshold overflow; check theta, c and T') from exc
+    if not math.isfinite(threshold):
+        raise ValueError('dynamic threshold must be finite')
+    return threshold
+
+
+def merge_answer(line, old_response_key, new_response_key, triple_score_key,
+                 threshold, output_key='llm_response'):
+    """Select the old answer only when its mean relative KGE score < threshold.
+
+    Empty reference-score lists are skipped. No valid triples means use the new
+    answer. local_check is deliberately ignored. Read both answers before writing
+    so output_key may also be new_response_key.
+    """
+    old_answer = line[old_response_key]
+    new_answer = line[new_response_key]
+    triples = line[triple_score_key]
+    for triple in triples:
+        if triple['ref_score'] and not all(
+            math.isfinite(value)
+            for value in [triple['triple_score'], *triple['ref_score']]
+        ):
+            raise ValueError('triple scores and reference scores must be finite')
+    score = score_feature(triples, 0, entity_count=False)
+    keep_old = score is not None and score < threshold
+    line[output_key] = old_answer if keep_old else new_answer
+    return line
+
+
+def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, tgt_key_name=None, src_key_name=None,
+                    *, old_response_key='old_llm_response', new_response_key='llm_response',
+                    triple_score_key='llm_triple_score', theta=None, c=128.0, turn=None,
+                    merge_output_key='llm_response'):
     '''
     summary: phrase llm response to key summary\n
     map_decompose: deliver sub-question to passages\n
@@ -397,6 +444,10 @@ def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, 
     count: count line\n
     phrase_question: phrase the generated answer by LLM
     '''
+    if func == 'result_merge':
+        threshold = dynamic_threshold(theta, c, turn)
+        if os.path.realpath(input_file_name) == os.path.realpath(output_file_name):
+            raise ValueError('result_merge input and output must be different files')
     with open(input_file_name) as input_f, \
         open(output_file_name, 'w') as output_f:
         error_num = 0
@@ -487,14 +538,8 @@ def process_by_line(input_file_name, output_file_name, func, id2subq_dict=None, 
                 error_num += 1
                 continue
             if func == 'result_merge':
-                if line['local_check'] == True:
-                    line['llm_response'] = line['turn0_response']
-                else:
-                    kg_score = score_feature(line['llm_triple_score'], 0, entity_count=False)
-                    if kg_score == None or kg_score >= 1:
-                        line['llm_response'] = line['turn1_response']
-                    else:
-                        line['llm_response'] = line['turn1_response']
+                merge_answer(line, old_response_key, new_response_key,
+                             triple_score_key, threshold, merge_output_key)
 
             output_f.write(json.dumps(line, ensure_ascii=False) + '\n')
         print(error_num)
@@ -684,6 +729,20 @@ if __name__ == "__main__":
     pbl_parser.add_argument('--map_file', help='Path to a JSONL file used to build a map (e.g., for sub-questions, pseudo_docs).')
     pbl_parser.add_argument('--map_func', choices=['summary', 'sub_question', 'question_entity', 'pseudo_doc', 'local_check'],
                             help='Functionality mode for reading the map file.')
+    pbl_parser.add_argument('--old-response-key', default='old_llm_response',
+                            help='result_merge: field containing the old answer')
+    pbl_parser.add_argument('--new-response-key', default='llm_response',
+                            help='result_merge: field containing the new answer')
+    pbl_parser.add_argument('--triple-score-key', default='llm_triple_score',
+                            help='result_merge: triple scores of the OLD answer')
+    pbl_parser.add_argument('--theta', '--theta0', type=float,
+                            help='result_merge: base threshold theta_0 (required)')
+    pbl_parser.add_argument('--c', type=float, default=128.0,
+                            help='result_merge: threshold growth parameter (default: 128)')
+    pbl_parser.add_argument('--T', '--turn', dest='turn', type=int,
+                            help='result_merge: OLD answer iteration t, zero-based (required); 0 for turn0 -> turn1')
+    pbl_parser.add_argument('--merge-output-key', default='llm_response',
+                            help='result_merge: selected answer field (default: overwrite llm_response)')
 
 
     # --- Subparser for merge_files ---
@@ -716,6 +775,11 @@ if __name__ == "__main__":
         list2pair(args.input_file, args.output_file, 'knowledge_card', line_mode=True)
 
     elif args.command == 'process_by_line':
+        if args.func == 'result_merge':
+            try:
+                dynamic_threshold(args.theta, args.c, args.turn)
+            except ValueError as exc:
+                parser.error(str(exc))
         id2map_dict = None
         if args.map_file and args.map_func:
             id2map_dict = read_map(args.map_file, args.map_func)
@@ -723,7 +787,10 @@ if __name__ == "__main__":
                 print("Failed to read map file. Exiting.")
                 exit(1) # Exit if map reading failed
 
-        process_by_line(args.input_file, args.output_file, args.func, id2map_dict, args.src_key, args.tgt_key)
+        process_by_line(args.input_file, args.output_file, args.func, id2map_dict, args.src_key, args.tgt_key,
+                        old_response_key=args.old_response_key, new_response_key=args.new_response_key,
+                        triple_score_key=args.triple_score_key, theta=args.theta, c=args.c, turn=args.turn,
+                        merge_output_key=args.merge_output_key)
 
     elif args.command == 'merge_files':
         merge_key_pairs = None
