@@ -163,3 +163,6 @@ cython_debug/
 result/
 run.sh
 datasets/
+
+# Private working notes
+/private-notes/

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train one CoDEx-M KGE model using the official classification configuration."""
+"""Train one CoDEx-M KGE model using an official task-specific configuration."""
 import argparse
 import json
 import os
@@ -14,6 +14,8 @@ def main():
     parser.add_argument('--codex-root', type=Path, required=True,
                         help='CoDEx repository where libkge_setup.sh completed')
     parser.add_argument('--model', choices=['transe', 'conve', 'rescal'], default='transe')
+    parser.add_argument('--task', choices=['triple-classification', 'link-prediction'],
+                        default='triple-classification', help='Official experiment configuration to use')
     parser.add_argument('--device', default='cuda:0', help='cuda:0, cuda:1, or cpu')
     parser.add_argument('--output', type=Path, help='New run folder; required again to resume a custom folder')
     parser.add_argument('--epochs', type=int, help='Total epoch limit, including already completed epochs')
@@ -28,10 +30,10 @@ def main():
 
     root = args.codex_root.expanduser().resolve()
     kge = root / 'kge'
-    source = root / 'models' / 'triple-classification' / 'codex-m' / args.model / 'config.yaml'
+    source = root / 'models' / args.task / 'codex-m' / args.model / 'config.yaml'
     dataset = kge / 'data' / 'codex-m'
     output = (args.output.expanduser().resolve() if args.output else
-              root / 'local-runs' / 'triple-classification' / 'codex-m' / args.model)
+              root / 'local-runs' / args.task / 'codex-m' / args.model)
     required = [kge / 'kge' / 'cli.py', source, dataset / 'dataset.yaml']
     required += [dataset / (split + '.txt') for split in ('train', 'valid', 'test')]
     for path in required:
@@ -67,6 +69,9 @@ def main():
         saved = json.loads(manifest.read_text())
         if saved['model'] != args.model or saved['codex_root'] != str(root):
             parser.error('Resume model/repository does not match the original run.')
+        # Runs created before --task was added were always classification runs.
+        if saved.get('task', 'triple-classification') != args.task:
+            parser.error('Resume task does not match the original run.')
         command += ['resume', str(output), '--checkpoint', 'last']
     else:
         if output.exists():
@@ -87,7 +92,7 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     if not args.resume:
         manifest = output.parent / (output.name + '.launcher.json')
-        manifest.write_text(json.dumps({'model': args.model, 'codex_root': str(root),
+        manifest.write_text(json.dumps({'model': args.model, 'task': args.task, 'codex_root': str(root),
                                         'command': command}, indent=2) + '\n')
     env = os.environ.copy()
     env['PYTHONPATH'] = str(kge) + os.pathsep + env.get('PYTHONPATH', '')
