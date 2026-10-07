@@ -42,6 +42,28 @@ def make_mapping(ids, pattern):
     return result
 
 
+def score_indexes(model, torch, indexes, device, direction):
+    tensor = torch.tensor(indexes, dtype=torch.long, device=device)
+    with torch.no_grad():
+        scores = model.score_spo(tensor[:, 0], tensor[:, 1], tensor[:, 2],
+                                 direction=direction).reshape(-1).cpu().tolist()
+    if len(scores) != len(indexes):
+        raise ValueError('Model returned an unexpected number of scores.')
+    return scores
+
+
+def dataset_references(model, head_indexes):
+    """Collect same-head positives from all three indexed CoDEx splits."""
+    references = {head: [] for head in head_indexes}
+    for split in ('train', 'valid', 'test'):
+        triples = model.dataset.split(split)
+        for start in range(0, len(triples), 65536):
+            for h, r, t in triples[start:start + 65536].tolist():
+                if h in references:
+                    references[h].append([h, r, t])
+    return references
+
+
 def score_triples(model, torch, triples, device, batch_size, direction='o'):
     # Preserve the embedding row order supplied by the model's dataset.
     entities = make_mapping(model.dataset.entity_ids(), r'Q\d+')
@@ -49,6 +71,20 @@ def score_triples(model, torch, triples, device, batch_size, direction='o'):
     if len(entities) != model.dataset.num_entities() or len(relations) != model.dataset.num_relations():
         raise ValueError('ID mapping sizes do not match checkpoint dataset dimensions.')
     model.eval()
+    references = dataset_references(model, {entities[h] for h, _, _ in triples if h in entities})
+    reference_scores = {}
+
+    def get_reference_scores(head):
+        if head not in reference_scores:
+            scores = []
+            refs = references[head]
+            for start in range(0, len(refs), batch_size):
+                scores.extend(score_indexes(model, torch, refs[start:start + batch_size], device, direction))
+            if not all(math.isfinite(score) for score in scores):
+                raise ValueError('Nonfinite reference score for head index {}'.format(head))
+            reference_scores[head] = scores
+        return reference_scores[head]
+
     for offset in range(0, len(triples), batch_size):
         rows, valid, indexes = [], [], []
         for triple in triples[offset:offset + batch_size]:
@@ -57,7 +93,7 @@ def score_triples(model, torch, triples, device, batch_size, direction='o'):
                        [('head', h, entities), ('relation', r, relations), ('tail', t, entities)]
                        if value not in mapping}
             row = {'triple_id': list(triple), 'status': 'unknown_id' if missing else 'ok',
-                   'triple_score': None, 'direction': direction}
+                   'triple_score': None, 'ref_score': [], 'direction': direction}
             if missing:
                 row['missing_ids'] = missing
             else:
@@ -66,15 +102,13 @@ def score_triples(model, torch, triples, device, batch_size, direction='o'):
                 indexes.append(row['model_indices'])
             rows.append(row)
         if indexes:
-            tensor = torch.tensor(indexes, dtype=torch.long, device=device)
-            with torch.no_grad():
-                scores = model.score_spo(tensor[:, 0], tensor[:, 1], tensor[:, 2],
-                                         direction=direction).reshape(-1).cpu().tolist()
-            if len(scores) != len(valid):
-                raise ValueError('Model returned an unexpected number of scores.')
+            scores = score_indexes(model, torch, indexes, device, direction)
             for index, score in zip(valid, scores):
                 if math.isfinite(score):
                     rows[index]['triple_score'] = score
+                    rows[index]['ref_score'] = get_reference_scores(rows[index]['model_indices'][0])
+                    if not rows[index]['ref_score']:
+                        rows[index]['status'] = 'no_references'
                 else:
                     rows[index]['status'] = 'nonfinite_score'
         yield from rows
@@ -92,6 +126,7 @@ def main():
     parser.add_argument('--triple', nargs=3, action='append', metavar=('HEAD', 'RELATION', 'TAIL'))
     parser.add_argument('--input', type=Path, help='One QID PID QID triple per line, tab or space separated')
     parser.add_argument('--batch-size', type=int, default=64)
+    parser.add_argument('--details', action='store_true', help='Include status, internal indexes and direction on successful rows')
     args = parser.parse_args()
     if args.batch_size <= 0:
         parser.error('--batch-size must be positive')
@@ -138,8 +173,10 @@ def main():
                 row = next(iterator, None)
             if row is None:
                 break
-            print(json.dumps(row, ensure_ascii=False, allow_nan=False), flush=True)
             failed = failed or row['status'] != 'ok'
+            if row['status'] == 'ok' and not args.details:
+                row = {key: row[key] for key in ('triple_id', 'triple_score', 'ref_score')}
+            print(json.dumps(row, ensure_ascii=False, allow_nan=False), flush=True)
         return 2 if failed else 0
     except Exception as exc:
         print('{}: {}'.format(type(exc).__name__, exc), file=sys.stderr)
