@@ -1,5 +1,86 @@
 # 参数扫描与最终答案融合
 
+## 一次运行直接出指标（推荐）
+
+`sensitivity.py` 将融合、历史答案提取和原评估脚本串起来，无需手动再次测试。
+先确保评估 Python 安装了 `ujson`（`python -m pip install ujson`）。
+
+HotpotQA 示例：
+
+```bash
+python analyse/sensitivity.py \
+  --dataset hotpot \
+  --turn0-input /path/turn0.jsonl --turn1-input /path/turn1.jsonl \
+  --turn0-old-answer-key turn0_response --turn0-new-answer-key llm_response \
+  --turn0-score-key turn0_triple_score \
+  --turn1-old-answer-key old_llm_response --turn1-new-answer-key llm_response \
+  --turn1-score-key llm_triple_score \
+  --theta-values 2.5 5 10 20 --c-values 4 16 128 256 \
+  --gold-file /path/hotpot_dev_distractor_v1.json \
+  --output-dir result/hotpot_sensitivity --save-details
+```
+
+2WikiMultiHopQA（额外传 JSONL aliases）：
+
+```bash
+python analyse/sensitivity.py \
+  --dataset 2wiki \
+  --turn0-input /path/turn0.jsonl --turn1-input /path/turn1.jsonl \
+  --theta-values 0.5 1 2 4 --c-values 4 16 128 256 \
+  --gold-file /path/dev.json --alias-file /path/id_aliases.json \
+  --output-dir result/2wiki_sensitivity
+```
+
+PopQA（使用原来转换为 2Wiki 格式、含 `_id` 和字符串 `answer` 的 gold）：
+
+```bash
+python analyse/sensitivity.py \
+  --dataset popqa \
+  --turn0-input /path/turn0.jsonl --turn1-input /path/turn1.jsonl \
+  --theta-values 0.025 0.05 0.1 0.2 --c-values 4 16 128 256 \
+  --gold-file /path/test.json --output-dir result/popqa_sensitivity
+```
+
+后两个例子使用默认字段，均可像 Hotpot 示例一样修改。`--eval-python /path/to/python`
+可指定评估解释器，默认与主脚本相同。
+
+服务器上解析和评估代码不在项目目录时，增加：
+
+```bash
+--dataset-test-dir /data/xkliu/dataset_test
+```
+
+该目录下应有 `hotpot/`、`2wikimultihop/`、`popqa/` 中本次数据集对应的子目录，
+其中同时存放 `phrase_ans.py` 和相应评估脚本。目录可以使用任意名称。
+默认仍为项目根目录的 `dataset_test`；相对路径按命令运行目录解析，建议服务器使用绝对路径。
+gold、aliases 和输入文件继续使用各自的路径参数，不自动从该目录查找。
+
+运行结束直接查看 `summary.csv` 或 `summary.json`：每行包含 θ₀、c、两轮阈值、
+选择来源数量、EM/F1/P/R、覆盖数量和运行状态。**汇总指标统一为 0–100 百分数**。
+2Wiki 和 PopQA 保留原脚本的输出精度，不额外重算指标。
+
+中间产物：
+
+- `predictions/theta_10__c_128.json`：`answer[id]` 是选中回复提取出的短答案，
+  可直接交给原评估器；同时提供空 `sp` 和 `evidence`，兼容 PopQA 接口。
+- `metrics/*.json`：原评估输出、原始单位及统一百分数后的答案指标。
+- `logs/*.log`：完整评估命令、stdout、stderr；PopQA 的 missing sp/evidence
+  提示是没有提供支持事实预测的正常表现，sp/evidence/joint 不用于本实验汇总。
+- `details/*.jsonl`：仅 `--save-details` 时生成，记录 `selected_source`、
+  最终完整回复（默认 `llm_response`）、短答案 `prediction` 和评分。
+
+解析严格调用相应数据集 `phrase_ans.py` 的 `phrase_answer()`；保留历史规则，
+包括未匹配句式时返回整段回复。不会执行该文件主程序中的写死路径，也不会改动它。
+实际评估入口分别为 `hotpot/hotpot_evaluate_v1.py`、
+`2wikimultihop/2wikimultihop_evaluate_v1.1.py`、`popqa/2wikimultihop_evaluate.py`，
+均位于 `dataset_test` 下并保持原样。
+
+以提供的完整 gold 为分母；不自动按输入裁剪，缺失和额外 ID 数会写入汇总。
+gold 不参与答案选择。输入错误、依赖缺失或输出冲突在运行前报错；单组评估失败
+则记录 failed 和空指标并继续其他组合，最后返回非零退出码。汇总每组完成即更新。
+
+## 仅融合，不测评
+
 只需 Python 标准库。两个文件均为 JSONL，每行一题；用 ID 对齐，不要求行顺序相同。
 不会调用模型、解析答案、读取 gold 或计算 EM/F1。
 
