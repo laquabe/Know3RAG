@@ -42,7 +42,7 @@ def make_mapping(ids, pattern):
     return result
 
 
-def score_triples(model, torch, triples, device, batch_size):
+def score_triples(model, torch, triples, device, batch_size, direction='o'):
     # Preserve the embedding row order supplied by the model's dataset.
     entities = make_mapping(model.dataset.entity_ids(), r'Q\d+')
     relations = make_mapping(model.dataset.relation_ids(), r'P\d+')
@@ -57,7 +57,7 @@ def score_triples(model, torch, triples, device, batch_size):
                        [('head', h, entities), ('relation', r, relations), ('tail', t, entities)]
                        if value not in mapping}
             row = {'triple_id': list(triple), 'status': 'unknown_id' if missing else 'ok',
-                   'triple_score': None}
+                   'triple_score': None, 'direction': direction}
             if missing:
                 row['missing_ids'] = missing
             else:
@@ -68,7 +68,8 @@ def score_triples(model, torch, triples, device, batch_size):
         if indexes:
             tensor = torch.tensor(indexes, dtype=torch.long, device=device)
             with torch.no_grad():
-                scores = model.score_spo(tensor[:, 0], tensor[:, 1], tensor[:, 2]).reshape(-1).cpu().tolist()
+                scores = model.score_spo(tensor[:, 0], tensor[:, 1], tensor[:, 2],
+                                         direction=direction).reshape(-1).cpu().tolist()
             if len(scores) != len(valid):
                 raise ValueError('Model returned an unexpected number of scores.')
             for index, score in zip(valid, scores):
@@ -86,6 +87,8 @@ def main():
     parser.add_argument('--dataset-dir', type=Path,
                         help='Original preprocessed training dataset, with dataset.yaml and ID maps')
     parser.add_argument('--device', default='cpu')
+    parser.add_argument('--direction', choices=['o', 's'], default='o',
+                        help='o: score tail given head/relation (default); s: score head via inverse relation')
     parser.add_argument('--triple', nargs=3, action='append', metavar=('HEAD', 'RELATION', 'TAIL'))
     parser.add_argument('--input', type=Path, help='One QID PID QID triple per line, tab or space separated')
     parser.add_argument('--batch-size', type=int, default=64)
@@ -129,7 +132,7 @@ def main():
             print('Loaded model={} dataset={} device={}'.format(
                 model.config.get('model'), model.config.get('dataset.name'), args.device), file=sys.stderr)
         failed = False
-        iterator = score_triples(model, torch, triples, args.device, args.batch_size)
+        iterator = score_triples(model, torch, triples, args.device, args.batch_size, args.direction)
         while True:
             with contextlib.redirect_stdout(sys.stderr):
                 row = next(iterator, None)
@@ -140,9 +143,9 @@ def main():
         return 2 if failed else 0
     except Exception as exc:
         print('{}: {}'.format(type(exc).__name__, exc), file=sys.stderr)
-        print('Use the training LibKGE environment and its original preprocessed dataset/ID maps. '
-              'If the error mentions SQAGeneratorRun/MappedAnnotationError, pin SQLAlchemy==1.4.54.',
-              file=sys.stderr)
+        if 'SQAGeneratorRun' in str(exc) or 'MappedAnnotationError' in type(exc).__name__:
+            print('Legacy Ax / SQLAlchemy conflict: use SQLAlchemy==1.4.54 in the training environment.',
+                  file=sys.stderr)
         return 1
 
 
