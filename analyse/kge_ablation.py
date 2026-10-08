@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Select cached answers with direct KGE thresholds; evaluate full/subset results."""
+"""Select cached answers with direct or dynamic KGE thresholds; evaluate results."""
 import argparse
 from collections import Counter
 import csv
+import hashlib
 import json
 import math
 from pathlib import Path
+import random
 import subprocess
 import sys
 
@@ -126,6 +128,49 @@ def threshold_grid(values0, values1):
     return valid, skipped
 
 
+def experiment_grid(args):
+    direct = args.threshold0_values is not None or args.threshold1_values is not None
+    dynamic = args.theta_values is not None or args.c_values is not None
+    if direct and dynamic:
+        raise ValueError('Choose direct thresholds OR theta/c; do not mix both parameter modes')
+    if direct:
+        pairs, skipped = threshold_grid(args.threshold0_values, args.threshold1_values)
+        return [dict(threshold_mode='direct', theta0=None, c=None, threshold0=t0, threshold1=t1)
+                for t0, t1 in pairs], skipped
+    if args.theta_values is None:
+        raise ValueError('Supply both direct threshold lists, or --theta-values [--c-values]')
+    grid, skipped = [], []
+    for theta, c, t0, t1 in merge.parameter_grid(
+            args.theta_values, args.c_values if args.c_values is not None else [128.0]):
+        group = dict(threshold_mode='dynamic', theta0=float(theta), c=float(c),
+                     threshold0=float(t0), threshold1=float(t1))
+        if t0 < t1:
+            grid.append(group)
+        else:
+            skipped.append(dict(group, reason='threshold0 must be smaller than threshold1'))
+    if not grid:
+        raise ValueError('no valid theta/c pairs: computed threshold0 must be smaller than threshold1')
+    return grid, skipped
+
+
+def group_label(group):
+    if group['threshold_mode'] == 'dynamic':
+        return 'theta_{}__c_{}'.format(merge.number_label(group['theta0']), merge.number_label(group['c']))
+    return 'threshold0_{}__threshold1_{}'.format(
+        merge.number_label(group['threshold0']), merge.number_label(group['threshold1']))
+
+
+def random_fallback_choices(prepared, seed):
+    """Fix a uniform draw per ID, independent of model, grid, or input order."""
+    choices = {}
+    for rid, item in prepared.items():
+        if item['score0'] is None and item['score1'] is None:
+            key = json.dumps([seed, rid], ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+            generator = random.Random(hashlib.sha256(key).digest())
+            choices[rid] = generator.choice(SOURCES)
+    return choices
+
+
 def subset_ids(prepared, path=None):
     if path:
         values = json.loads(Path(path).read_text(encoding='utf-8'))
@@ -190,7 +235,7 @@ def evaluate(args, script, scale, files, gold_path, empty=False):
 
 
 def run(args):
-    grid, skipped = threshold_grid(args.threshold0_values, args.threshold1_values)
+    grid, skipped = experiment_grid(args)
     if bool(args.dataset) != bool(args.gold_file):
         raise ValueError('--dataset and --gold-file must be supplied together')
     if args.alias_file and not args.dataset:
@@ -198,6 +243,7 @@ def run(args):
     if args.output_answer_key in {args.turn1_id_key, DETAIL_KEY}:
         raise ValueError('output answer key cannot overwrite the output ID or ' + DETAIL_KEY)
     prepared = prepare(args)
+    random_choices = random_fallback_choices(prepared, args.seed) if args.random_fallback else {}
     subset = subset_ids(prepared, args.subset_ids)
     subset_set = set(subset)
     members = dict(full=list(prepared), subset=subset)
@@ -223,8 +269,10 @@ def run(args):
                                     (subset_set if gold_ids is not None else None))
                 for scope, ids in members.items()}
     plans = []
-    for t0, t1 in grid:
-        label = 'threshold0_{}__threshold1_{}'.format(merge.number_label(t0), merge.number_label(t1))
+    for group in grid:
+        label = group_label(group)
+        if args.random_fallback:
+            label += '__random_seed_{}'.format(args.seed)
         paths = {}
         for scope in SCOPES:
             paths[scope] = dict(selected=root / scope / (label + '.jsonl'))
@@ -233,7 +281,7 @@ def run(args):
                                             ('log', 'logs', '.log'), ('metrics', 'metrics', '.json')]:
                     paths[scope][key] = root / folder / scope / (label + suffix)
             outputs.extend(paths[scope].values())
-        plans.append((t0, t1, paths))
+        plans.append((group, paths))
     input_paths = {Path(path).expanduser().resolve() for path in inputs if path}
     if len({p.resolve() for p in outputs}) != len(outputs):
         raise ValueError('output paths collide')
@@ -249,25 +297,34 @@ def run(args):
         sensitivity.write_json(gold_path, subset_gold)
     metadata = dict(
         config=vars(args), formula='mean(abs(triple_score - mean(ref_score)))',
+        threshold_mode=grid[0]['threshold_mode'],
+        dynamic_formula='threshold0=theta0; threshold1=theta0 * (c / (1 + exp(1 - theta0)))',
+        random_fallback_enabled=args.random_fallback,
+        seed=args.seed if args.random_fallback else None,
+        random_rule='both scores are None; uniform choice among ' + ', '.join(SOURCES),
         comparison='score < threshold', metric_unit='percent',
         subset_rule='fixed_ids' if args.subset_ids else 'score0 is not None or score1 is not None',
         subset_ids_file=str(subset_path), coverage=coverage, skipped_pairs=skipped)
     if skipped:
         print('Skipped {} threshold pairs with threshold0 >= threshold1.'.format(len(skipped)), flush=True)
     results = []
-    for index, (t0, t1, paths) in enumerate(plans, 1):
+    for index, (group, paths) in enumerate(plans, 1):
+        t0, t1 = group['threshold0'], group['threshold1']
         counts = {scope: Counter({source: 0 for source in SOURCES}) for scope in SCOPES}
         predictions = {scope: {} for scope in SCOPES}
         with paths['full']['selected'].open('w', encoding='utf-8') as full_stream, \
                 paths['subset']['selected'].open('w', encoding='utf-8') as subset_stream:
             for rid, item in prepared.items():
-                source = merge.choose(item['score0'], item['score1'], t0, t1)
+                used_random = rid in random_choices
+                source = random_choices[rid] if used_random else merge.choose(
+                    item['score0'], item['score1'], t0, t1)
                 row = dict(item['base'])
                 row[args.output_answer_key] = item['candidates'][source]
                 row[DETAIL_KEY] = dict(
                     source_ids=item['source_ids'], candidates=item['candidates'],
                     score0=item['score0'], score1=item['score1'],
-                    threshold0=t0, threshold1=t1, selected_source=source)
+                    random_applied=used_random, random_seed=args.seed if args.random_fallback else None,
+                    **group, selected_source=source)
                 text = json.dumps(row, ensure_ascii=False, allow_nan=False) + '\n'
                 full_stream.write(text)
                 counts['full'][source] += 1
@@ -287,7 +344,10 @@ def run(args):
                                    Path(args.gold_file).resolve() if scope == 'full' else gold_path,
                                    empty=scope == 'subset' and not subset)
             result = dict(
-                dataset=args.dataset, threshold0=t0, threshold1=t1, scope=scope, **coverage[scope],
+                dataset=args.dataset, **group, scope=scope, **coverage[scope],
+                random_fallback_enabled=args.random_fallback,
+                seed=args.seed if args.random_fallback else None,
+                random_fallback_count=sum(rid in random_choices for rid in members[scope]),
                 **{'selected_' + source: counts[scope][source] for source in SOURCES},
                 output_file=str(files['selected']),
                 prediction_file=str(files['prediction']) if args.dataset else None,
@@ -317,7 +377,15 @@ def build_parser():
         parser.add_argument(prefix + '-old-answer-key', default='old_llm_response')
         parser.add_argument(prefix + '-new-answer-key', default='llm_response')
         parser.add_argument(prefix + '-score-key', default='llm_triple_score')
-        parser.add_argument('--threshold{}-values'.format(turn), type=float, nargs='+', required=True)
+        parser.add_argument('--threshold{}-values'.format(turn), type=float, nargs='+')
+    parser.add_argument('--theta-values', '--theta', type=float, nargs='+',
+                        help='Dynamic mode: theta0 values; mutually exclusive with direct thresholds')
+    parser.add_argument('--c-values', '--c', type=float, nargs='+',
+                        help='Dynamic mode: c values (default: 128)')
+    parser.add_argument('--random', dest='random_fallback', action='store_true',
+                        help='Uniformly choose among 3 candidates only when BOTH scores are missing')
+    parser.add_argument('--seed', type=int, default=42,
+                        help='Seed for --random (default: 42); draws are stable per question ID')
     parser.add_argument('--triple-value-key', default='triple_score')
     parser.add_argument('--reference-scores-key', default='ref_score')
     parser.add_argument('--output-answer-key', default='llm_response')
