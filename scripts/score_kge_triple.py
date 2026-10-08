@@ -129,6 +129,27 @@ def result_fields(row, details=False):
     return row
 
 
+def record_triples(record, source_key='llm_triple_id', target_key='llm_triple_score'):
+    """Prefer explicit triple IDs; recover them from old scores only if absent."""
+    if source_key in record:
+        if not isinstance(record[source_key], list):
+            raise ValueError('{} must be a list'.format(source_key))
+        return [validate_triple(item) for item in record[source_key]]
+    if target_key not in record:
+        raise ValueError('Missing both {} and {}; cannot extract triple IDs'.format(source_key, target_key))
+    if not isinstance(record[target_key], list):
+        raise ValueError('{} must be a list to extract triple IDs'.format(target_key))
+    triples = []
+    for index, item in enumerate(record[target_key]):
+        if not isinstance(item, dict) or 'triple_id' not in item:
+            raise ValueError('{}[{}] must be an object containing triple_id'.format(target_key, index))
+        try:
+            triples.append(validate_triple(item['triple_id']))
+        except ValueError as exc:
+            raise ValueError('{}[{}].triple_id: {}'.format(target_key, index, exc)) from exc
+    return triples
+
+
 def score_jsonl(model, torch, input_path, output_path, device, batch_size,
                 direction='o', source_key='llm_triple_id', target_key='llm_triple_score',
                 details=False):
@@ -153,9 +174,7 @@ def score_jsonl(model, torch, input_path, output_path, device, batch_size,
                 record = json.loads(line)
                 if not isinstance(record, dict):
                     raise ValueError('Each JSONL record must be an object')
-                if source_key not in record or not isinstance(record[source_key], list):
-                    raise ValueError('{} must be present and be a list'.format(source_key))
-                triples = [validate_triple(item) for item in record[source_key]]
+                triples = record_triples(record, source_key, target_key)
                 with contextlib.redirect_stdout(sys.stderr):
                     rows = list(score_triples(model, torch, triples, device, batch_size, direction, context))
                 record[target_key] = [result_fields(row, details) for row in rows
@@ -188,8 +207,10 @@ def main():
     parser.add_argument('--input', type=Path, help='One QID PID QID triple per line, tab or space separated')
     parser.add_argument('--output', type=Path,
                         help='With --input: read full JSONL records and write replaced score fields here')
-    parser.add_argument('--source-key', default='llm_triple_id')
-    parser.add_argument('--target-key', default='llm_triple_score')
+    parser.add_argument('--source-key', default='llm_triple_id',
+                        help='Preferred triple-ID list; if absent, read triple_id from --target-key items')
+    parser.add_argument('--target-key', default='llm_triple_score',
+                        help='Score field to replace; also supplies triple IDs when --source-key is absent')
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--details', action='store_true', help='Include status, internal indexes and direction on successful rows')
     args = parser.parse_args()
