@@ -1,5 +1,25 @@
 # 参数扫描与最终答案融合
 
+## EL 覆盖分层评测
+
+使用 [`el_coverage.py`](el_coverage.py) 读取一份 EL 和数据集 gold，支持通过
+`--prediction-file` 直接读取 `{"answer": {"id": "最终答案"}}`，跳过阈值选择和答案
+提取；也支持读取两轮回答后按动态阈值选择。输出整体及完全覆盖／部分覆盖／未覆盖
+的 EM/F1，映射不足题单列。
+两轮默认字段均为 `old_llm_response`、`llm_response`、`llm_triple_score`，每轮可独立
+传参修改。支持 HotpotQA、2Wiki 和 PopQA；命令与覆盖口径见
+[`el_coverage.md`](el_coverage.md)。
+
+## KGE 模型消融：两种阈值模式、全量与子集
+
+使用 [`kge_ablation.py`](kge_ablation.py) 读取两份回答文件和两份新评分文件，
+两轮都默认使用 `old_llm_response` / `llm_response`。支持直接传入两组阈值，
+或传入 `--theta-values` / `--c-values` 按论文公式计算；
+只运行 `threshold0 < threshold1` 的组合，同时输出全量和“至少一轮有有效评分”的子集。
+可选 `--random --seed 42`，在两轮均无有效评分时从三个候选回答中等概率随机选择。
+支持固定子集 ID，以及 HotpotQA、2Wiki 的全量/子集 EM/F1。
+完整命令、字段说明和输出格式见 [`kge_ablation.md`](kge_ablation.md)。
+
 ## 一次运行直接出指标（推荐）
 
 `sensitivity.py` 将融合、历史答案提取和原评估脚本串起来，无需手动再次测试。
@@ -147,3 +167,46 @@ turn0 的新答案仅保存供核对，不参与最终选择。
 禁止覆盖输入，也禁止输入本身已有 `merge_info`（避免将融合结果误当原始输入）。
 
 后续可用 `scripts/eval_hotpot.py` 对每组结果评估。这里不把 gold 用于选择。
+
+## 参数敏感性绘图
+
+安装 `matplotlib` 后，在项目根目录运行（默认只画 F1）：
+
+```bash
+python analyse/plot_sensitivity.py
+python analyse/plot_sensitivity.py --em --f1
+python analyse/plot_sensitivity.py --f1 --c-ylim 0.35 0.40 --theta-ylim 0.34 0.40
+python analyse/plot_sensitivity.py --f1 --theta-min 0  # 恢复完整 θ₀ 范围
+```
+
+默认读取 `result_202608/sensitivity/hotpotqa_qwen_summary.csv` 和
+`result_202608/sensitivity/2wiki_glm4_summary.csv`，可通过 `--qwen-csv`、
+`--glm4-csv` 替换。路径默认相对于脚本所在项目，不依赖运行目录。
+CSV 需要 `theta0,c,status` 和选中的 `em,f1` 列；指标必须为 **0–100 百分数**，
+绘图时除以 100 转为 0–1。非成功状态、重复参数对、非法数值会报错。
+
+c 图固定 Qwen 的 θ₀=1、GLM4 的 θ₀=2；θ₀ 图固定 c=128。
+可用 `--qwen-theta`、`--glm4-theta`、`--fixed-c` 覆盖。
+θ₀ 图默认仅展示 θ₀≥0.5 的点，可用 `--theta-min` 改变下限（含边界），
+`--theta-min 0` 恢复完整正值范围；此选项不影响 c 图或原始 CSV。
+图注中应说明展示范围；终端也会打印实际绘制的 θ₀ 点。
+读取展示范围内全部点并排序，两组横坐标必须一致且大于零。
+c 使用底数为 2 的对数轴，θ₀ 使用底数为 10 的对数轴，刻度显示实际值。
+
+`--em` 仅画 EM，`--f1` 仅画 F1，同时传入则两者都画。
+EM 为绿色、F1 为橙色；Qwen 为实线圆点，GLM4 为虚线方块。
+图例放在坐标轴内，由 Matplotlib 自动选择尽量不遮挡曲线的位置。
+标题使用 `Effect of c` 或 `Effect of θ₀`，固定参数设置放在标题后的括号内。
+默认每张图根据全部显示曲线独立计算纵轴：两端留 8% 余量，至少 0.002 总跨度，
+再向外取整为易读刻度，限制在 0–1 内。纵轴不强制从零开始。
+同时显示 EM/F1 时共用同一纵轴，因此细微变化会更平缓。
+
+`--ylim MIN MAX` 同时控制两张图，`--c-ylim`、`--theta-ylim` 优先覆盖对应图。
+范围必须满足 `0 ≤ MIN < MAX ≤ 1`，裁掉任何点默认报错；显式传入
+`--allow-clipping` 才允许裁剪，并打印裁剪点数。终端始终打印最终纵轴范围。
+
+默认输出到 `result_202608/sensitivity/figures`，可通过 `--output-dir` 更改。
+每张图生成矢量 PDF 和 300 DPI PNG，例如 `sensitivity_c_f1.pdf`、
+`sensitivity_theta_em_f1.png`；重复运行会覆盖同名图，如需保留不同固定参数的
+版本，请使用不同输出目录。优先 Times New Roman，缺失时使用 DejaVu Serif；
+无需 LaTeX。脚本只读取汇总 CSV，不重新融合或评估，也不修改输入。

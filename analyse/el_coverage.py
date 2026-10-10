@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Select cached answers and evaluate QA performance by gold entity coverage."""
+"""Evaluate final predictions or select cached answers by gold entity coverage."""
 import argparse
 from collections import Counter
 import csv
@@ -87,6 +87,41 @@ def require_same_ids(expected, actual, label):
     if missing or extra:
         raise ValueError(f'{label} ID set differs: {len(missing)} missing, {len(extra)} extra; '
                          f'missing examples={sorted(missing)[:5]}, extra examples={sorted(extra)[:5]}')
+
+
+def input_mode(args):
+    if args.prediction_file:
+        if args.turn0_input or args.turn1_input or args.theta0 is not None or args.c is not None:
+            raise ValueError('--prediction-file cannot be combined with two-turn inputs or --theta0/--c')
+        return 'predictions'
+    if not args.turn0_input or not args.turn1_input or args.theta0 is None:
+        raise ValueError('provide --prediction-file OR both --turn0-input/--turn1-input and --theta0')
+    if args.c is None:
+        args.c = 128.0
+    return 'two_turn'
+
+
+def load_predictions(path):
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f'duplicate JSON key/ID {key!r}')
+            result[key] = value
+        return result
+
+    try:
+        with open(path, encoding='utf-8-sig') as stream:
+            data = json.load(stream, object_pairs_hook=unique_object)
+        if not isinstance(data, dict) or not isinstance(data.get('answer'), dict) or not data['answer']:
+            raise ValueError('prediction file must contain a non-empty "answer" object mapping IDs to strings')
+        for rid, answer in data['answer'].items():
+            record_id(rid)
+            if not isinstance(answer, str):
+                raise ValueError(f'ID {rid}: prediction must be a string')
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f'{path}: {exc}') from exc
+    return data['answer']
 
 
 def load_answers(args):
@@ -219,7 +254,7 @@ def evaluator_setup(args):
     folder, filename, scale = sensitivity.DATASETS[args.dataset]
     script = Path(args.dataset_test_dir).expanduser().resolve() / folder / filename
     extractor = script.parent / 'phrase_ans.py'
-    for path in (script, extractor):
+    for path in (script,) if args.prediction_file else (script, extractor):
         if not path.is_file():
             raise ValueError(f'file not found: {path}')
     if args.dataset == '2wiki':
@@ -233,7 +268,7 @@ def evaluator_setup(args):
     process = subprocess.run([args.eval_python, '-c', 'import ujson'], capture_output=True, text=True)
     if process.returncode:
         raise ValueError(f'evaluation Python needs ujson: {args.eval_python}\n{process.stderr}')
-    return script, sensitivity.load_extractor(extractor), scale
+    return script, None if args.prediction_file else sensitivity.load_extractor(extractor), scale
 
 
 def evaluate(args, script, scale, files, empty):
@@ -271,9 +306,9 @@ def output_preflight(args, script):
         for group in ('overall', *GROUPS)}
     outputs = [root / name for name in ('summary.json', 'summary.csv', 'details.jsonl')]
     outputs += [path for paths in files.values() for path in paths.values()]
-    inputs = [Path(path).resolve() for path in (args.turn0_input, args.turn1_input, args.el_file,
+    inputs = [Path(path).resolve() for path in (args.prediction_file, args.turn0_input, args.turn1_input, args.el_file,
         args.gold_file, args.entity_map_file, args.popqa_source_file, args.alias_file,
-        script, script.parent / 'phrase_ans.py') if path]
+        script, None if args.prediction_file else script.parent / 'phrase_ans.py') if path]
     resolved = [path.resolve() for path in outputs]
     if len(set(resolved)) != len(resolved):
         raise ValueError('output paths collide')
@@ -286,33 +321,45 @@ def output_preflight(args, script):
 
 
 def run(args):
-    _, _, threshold0, threshold1 = merge.parameter_grid([args.theta0], [args.c])[0]
-    first, second = load_answers(args)
+    mode = input_mode(args)
+    selecting = mode == 'two_turn'
+    threshold0 = threshold1 = None
+    if selecting:
+        _, _, threshold0, threshold1 = merge.parameter_grid([args.theta0], [args.c])[0]
+        first, second = load_answers(args)
+        input_ids = first.keys()
+    else:
+        predictions = load_predictions(args.prediction_file)
+        input_ids = predictions.keys()
     gold = load_gold(args)
-    require_same_ids(first, gold, 'gold versus answers')
-    coverage, extra_el = coverage_details(args, first, gold_entities(args, gold))
+    require_same_ids(input_ids, gold, 'gold versus answers')
+    coverage, extra_el = coverage_details(args, input_ids, gold_entities(args, gold))
     script, extract, scale = evaluator_setup(args)
     root, files, outputs = output_preflight(args, script)
     details = {}
     groups = {name: [] for name in ('overall', *GROUPS)}
-    for rid, row0 in first.items():
-        row1 = second[rid]
-        source = merge.choose(row0['score'], row1['score'], threshold0, threshold1)
-        candidates = dict(turn0_old=row0['old'], turn0_new=row0['new'],
-                          turn1_old=row1['old'], turn1_new=row1['new'])
-        answer = candidates[source]
-        details[rid] = dict(id=rid, selected_source=source, score0=row0['score'], score1=row1['score'],
-                            llm_response=answer, prediction=extract({'response': answer}, 'response'),
-                            **coverage[rid])
+    for rid in input_ids:
+        if selecting:
+            row0, row1 = first[rid], second[rid]
+            source = merge.choose(row0['score'], row1['score'], threshold0, threshold1)
+            candidates = dict(turn0_old=row0['old'], turn0_new=row0['new'],
+                              turn1_old=row1['old'], turn1_new=row1['new'])
+            answer = candidates[source]
+            detail = dict(selected_source=source, score0=row0['score'], score1=row1['score'],
+                          llm_response=answer, prediction=extract({'response': answer}, 'response'))
+        else:
+            detail = dict(selected_source='prediction_file', score0=None, score1=None,
+                          llm_response=None, prediction=predictions[rid])
+        details[rid] = dict(id=rid, **detail, **coverage[rid])
         groups['overall'].append(rid)
         groups[coverage[rid]['group']].append(rid)
-    total = len(first)
+    total = len(input_ids)
     eligible = total - len(groups['mapping_incomplete'])
-    summary = dict(config=vars(args), metric_unit='percent', coverage_unit='fraction',
+    summary = dict(config=vars(args), input_mode=mode, metric_unit='percent', coverage_unit='fraction',
                    threshold0=threshold0, threshold1=threshold1,
-                   threshold_formula='theta_t = theta0 * (c / (1 + exp(1 - theta0))) ** t',
-                   score_formula='mean(abs(triple_score - mean(ref_score))) over valid triples',
-                   comparison='strictly less than', gold_entity_source=GOLD_SOURCES[args.dataset],
+                   threshold_formula='theta_t = theta0 * (c / (1 + exp(1 - theta0))) ** t' if selecting else None,
+                   score_formula='mean(abs(triple_score - mean(ref_score))) over valid triples' if selecting else None,
+                   comparison='strictly less than' if selecting else None, gold_entity_source=GOLD_SOURCES[args.dataset],
                    coverage_definition='unique matched QIDs / unique gold QIDs; full gold mapping required',
                    total_count=total, eligible_count=eligible, extra_el_records=extra_el, results=[])
     for path in outputs:
@@ -326,12 +373,13 @@ def run(args):
         sensitivity.write_json(paths['prediction'], dict(
             answer={rid: details[rid]['prediction'] for rid in ids}, sp={}, evidence={}))
         counts = Counter(details[rid]['selected_source'] for rid in ids)
-        result = dict(dataset=args.dataset, group=group, count=len(ids), percent_of_total=100 * len(ids) / total,
+        result = dict(dataset=args.dataset, input_mode=mode, group=group, count=len(ids), percent_of_total=100 * len(ids) / total,
                       percent_of_eligible=100 * len(ids) / eligible if eligible and group in GROUPS[:3] else None,
                       theta0=args.theta0, c=args.c, threshold0=threshold0, threshold1=threshold1,
-                      **{f'selected_{name}': counts[name] for name in SOURCES},
-                      missing_score0=sum(details[rid]['score0'] is None for rid in ids),
-                      missing_score1=sum(details[rid]['score1'] is None for rid in ids),
+                      **{f'selected_{name}': counts[name] if selecting else None for name in SOURCES},
+                      selected_prediction_file=counts['prediction_file'] if not selecting else None,
+                      missing_score0=sum(details[rid]['score0'] is None for rid in ids) if selecting else None,
+                      missing_score1=sum(details[rid]['score1'] is None for rid in ids) if selecting else None,
                       **{kind + '_file': str(path) for kind, path in paths.items()},
                       **evaluate(args, script, scale, paths, not ids))
         summary['results'].append(result)
@@ -350,9 +398,10 @@ def run(args):
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--dataset', choices=sensitivity.DATASETS, required=True)
+    parser.add_argument('--prediction-file', help='Final parsed JSON predictions: {"answer": {"id": "answer"}}; skip selection/extraction')
     for turn in (0, 1):
         prefix = f'--turn{turn}'
-        parser.add_argument(prefix + '-input', required=True)
+        parser.add_argument(prefix + '-input')
         parser.add_argument(prefix + '-id-key', default='id')
         parser.add_argument(prefix + '-old-answer-key', default='old_llm_response')
         parser.add_argument(prefix + '-new-answer-key', default='llm_response')
@@ -365,8 +414,8 @@ def build_parser():
     parser.add_argument('--entity-map-file', help='Hotpot supporting-title to Wikidata mapping')
     parser.add_argument('--popqa-source-file', help='Original PopQA TSV or JSON/JSONL containing id and s_uri')
     parser.add_argument('--alias-file', help='2Wiki evaluation aliases')
-    parser.add_argument('--theta0', type=float, required=True)
-    parser.add_argument('--c', type=float, default=128.0)
+    parser.add_argument('--theta0', type=float, help='Required with two-turn inputs')
+    parser.add_argument('--c', type=float, help='Two-turn threshold constant (default: 128)')
     parser.add_argument('--dataset-test-dir', default=str(sensitivity.ROOT / 'dataset_test'))
     parser.add_argument('--eval-python', default=sys.executable)
     parser.add_argument('--output-dir', required=True)
