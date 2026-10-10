@@ -152,7 +152,7 @@ def load_gold(args):
     for rid, row in gold.items():
         if not isinstance(row['_id'], str) or not isinstance(row.get('answer'), str):
             raise ValueError(f'{args.gold_file}: ID {rid}: gold _id and answer must be strings')
-        if args.dataset == '2wiki' and 'answer_id' not in row:
+        if args.dataset in sensitivity.ALIAS_DATASETS and 'answer_id' not in row:
             raise ValueError(f'{args.gold_file}: ID {rid}: missing answer_id')
     return gold
 
@@ -257,9 +257,9 @@ def evaluator_setup(args):
     for path in (script,) if args.prediction_file else (script, extractor):
         if not path.is_file():
             raise ValueError(f'file not found: {path}')
-    if args.dataset == '2wiki':
+    if args.dataset in sensitivity.ALIAS_DATASETS:
         if not args.alias_file:
-            raise ValueError('2wiki requires --alias-file')
+            raise ValueError(f'{args.dataset} requires --alias-file')
         for rid, row in read_index(args.alias_file, 'Q_id').items():
             if any(not isinstance(row.get(key), list) or
                    any(not isinstance(value, str) for value in row[key])
@@ -278,7 +278,7 @@ def evaluate(args, script, scale, files, empty):
         files['log'].write_text('Empty group: evaluation skipped.\n', encoding='utf-8')
     else:
         command = [args.eval_python, str(script), str(files['prediction']), str(files['gold'])]
-        if args.dataset == '2wiki':
+        if args.dataset in sensitivity.ALIAS_DATASETS:
             command.append(str(Path(args.alias_file).resolve()))
         try:
             process = subprocess.run(command, capture_output=True, text=True)
@@ -356,6 +356,7 @@ def run(args):
     total = len(input_ids)
     eligible = total - len(groups['mapping_incomplete'])
     summary = dict(config=vars(args), input_mode=mode, metric_unit='percent', coverage_unit='fraction',
+                   evaluator_script=str(script), answer_aliases_enabled=args.dataset in sensitivity.ALIAS_DATASETS,
                    threshold0=threshold0, threshold1=threshold1,
                    threshold_formula='theta_t = theta0 * (c / (1 + exp(1 - theta0))) ** t' if selecting else None,
                    score_formula='mean(abs(triple_score - mean(ref_score))) over valid triples' if selecting else None,
@@ -413,7 +414,7 @@ def build_parser():
     parser.add_argument('--gold-file', required=True)
     parser.add_argument('--entity-map-file', help='Hotpot supporting-title to Wikidata mapping')
     parser.add_argument('--popqa-source-file', help='Original PopQA TSV or JSON/JSONL containing id and s_uri')
-    parser.add_argument('--alias-file', help='2Wiki evaluation aliases')
+    parser.add_argument('--alias-file', help='Required for 2Wiki and PopQA answer evaluation')
     parser.add_argument('--theta0', type=float, help='Required with two-turn inputs')
     parser.add_argument('--c', type=float, help='Two-turn threshold constant (default: 128)')
     parser.add_argument('--dataset-test-dir', default=str(sensitivity.ROOT / 'dataset_test'))

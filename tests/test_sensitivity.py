@@ -29,9 +29,10 @@ class SensitivityTest(unittest.TestCase):
                                     new='Not equal to second old.', score=scores(3))) + '\n')
         b.write_text(json.dumps(dict(qid='1', old='The answer is Paris.',
                                     new='The answer is London.', score=scores(3))) + '\n')
-        gold.write_text(json.dumps([dict(_id='1', answer='City of Paris' if dataset == '2wiki' else 'Paris', answer_id='Q1'),
+        alias_id = '100' if dataset == 'popqa' else 'Q1'
+        gold.write_text(json.dumps([dict(_id='1', answer='City of Paris' if dataset in ('2wiki', 'popqa') else 'Paris', answer_id=alias_id),
                                     dict(_id='2', answer='missing', answer_id='Q2')]))
-        aliases.write_text(json.dumps(dict(Q_id='Q1', aliases=['Paris'], demonyms=[])) + '\n')
+        aliases.write_text(json.dumps(dict(Q_id=alias_id, aliases=['Paris'], demonyms=[])) + '\n')
         return s.build_parser().parse_args([
             '--dataset', dataset, '--turn0-input', str(a), '--turn1-input', str(b),
             '--turn0-id-key', 'uid', '--turn1-id-key', 'qid',
@@ -63,8 +64,21 @@ class SensitivityTest(unittest.TestCase):
                 self.assertEqual(pred, dict(answer={'1': 'Paris'}, sp={}, evidence={}))
                 self.assertEqual(hashlib.sha256(script.read_bytes()).hexdigest(), before)
                 self.assertTrue((Path(args.output_dir) / 'summary.csv').exists())
+                if dataset == 'popqa':
+                    summary = json.loads((Path(args.output_dir) / 'summary.json').read_text())
+                    self.assertEqual(Path(summary['evaluator_script']).name, 'popqa.py')
+                    self.assertTrue(summary['answer_aliases_enabled'])
                 with self.assertRaises(ValueError):
                     s.run(args)
+
+    def test_popqa_requires_aliases(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = self.fixture(root, 'popqa')
+            args.alias_file = None
+            with self.assertRaisesRegex(ValueError, 'popqa requires --alias-file'):
+                s.run(args)
+            self.assertFalse((root / 'out').exists())
 
     def test_failed_group_continues(self):
         with tempfile.TemporaryDirectory() as td:

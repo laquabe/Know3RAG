@@ -15,8 +15,9 @@ ROOT = Path(__file__).resolve().parents[1]
 DATASETS = {
     'hotpot': ('hotpot', 'hotpot_evaluate_v1.py', 100.0),
     '2wiki': ('2wikimultihop', '2wikimultihop_evaluate_v1.1.py', 1.0),
-    'popqa': ('popqa', '2wikimultihop_evaluate.py', 1.0),
+    'popqa': ('popqa', 'popqa.py', 1.0),
 }
+ALIAS_DATASETS = ('2wiki', 'popqa')
 METRICS = ('em', 'f1', 'prec', 'recall')
 
 
@@ -51,9 +52,9 @@ def preflight(args):
     script = Path(args.dataset_test_dir).expanduser().resolve() / folder / filename
     extractor_path = script.parent / 'phrase_ans.py'
     required = [Path(args.gold_file), script, extractor_path]
-    if args.dataset == '2wiki':
+    if args.dataset in ALIAS_DATASETS:
         if not args.alias_file:
-            raise ValueError('2wiki requires --alias-file (JSONL id_aliases file)')
+            raise ValueError(f'{args.dataset} requires --alias-file (JSONL id_aliases file)')
         required.append(Path(args.alias_file))
     for path in required:
         if not path.is_file():
@@ -69,12 +70,12 @@ def preflight(args):
         # JSON object keys are strings; do not silently change official gold IDs.
         if not isinstance(row['_id'], str) or not isinstance(row['answer'], str):
             raise ValueError('gold _id and answer must be strings')
-        if args.dataset == '2wiki':
+        if args.dataset in ALIAS_DATASETS:
             row['answer_id']
         ids.append(row['_id'])
     if len(set(ids)) != len(ids):
         raise ValueError('duplicate gold IDs')
-    if args.dataset == '2wiki':
+    if args.dataset in ALIAS_DATASETS:
         with open(args.alias_file, encoding='utf-8') as stream:
             for line in stream:
                 alias = json.loads(line)
@@ -141,7 +142,7 @@ def run(args):
                 for row in details:
                     stream.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + '\n')
         command = [args.eval_python, str(script), str(files['predictions']), str(Path(args.gold_file).resolve())]
-        if args.dataset == '2wiki':
+        if args.dataset in ALIAS_DATASETS:
             command.append(str(Path(args.alias_file).resolve()))
         result = dict(dataset=args.dataset, theta0=theta, c=c, threshold0=t0, threshold1=t1,
                       **coverage, **{f'selected_{k}': v for k, v in counts.items()},
@@ -165,7 +166,9 @@ def run(args):
             write_json(files['metrics'], dict(status='failed', error=str(exc)))
         results.append(result)
         # Persist after each group so failures or interruption do not lose earlier metrics.
-        write_json(summary_path, dict(config=vars(args), metric_unit='percent', results=results))
+        write_json(summary_path, dict(config=vars(args), metric_unit='percent',
+                   evaluator_script=str(script), answer_aliases_enabled=args.dataset in ALIAS_DATASETS,
+                   results=results))
         with csv_path.open('w', encoding='utf-8', newline='') as stream:
             writer = csv.DictWriter(stream, fieldnames=list(result))
             writer.writeheader()
@@ -181,7 +184,7 @@ def build_parser():
     parser.add_argument('--dataset-test-dir', default=str(ROOT / 'dataset_test'),
                         help='Directory containing hotpot/, 2wikimultihop/, popqa/; may be outside this project')
     parser.add_argument('--gold-file', required=True)
-    parser.add_argument('--alias-file')
+    parser.add_argument('--alias-file', help='Required for 2Wiki and PopQA answer evaluation')
     parser.add_argument('--eval-python', default=sys.executable)
     parser.add_argument('--save-details', action='store_true')
     return parser

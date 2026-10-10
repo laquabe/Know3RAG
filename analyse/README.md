@@ -58,8 +58,13 @@ python analyse/sensitivity.py \
   --dataset popqa \
   --turn0-input /path/turn0.jsonl --turn1-input /path/turn1.jsonl \
   --theta-values 0.025 0.05 0.1 0.2 --c-values 4 16 128 256 \
-  --gold-file /path/test.json --output-dir result/popqa_sensitivity
+  --gold-file /path/test.json --alias-file /path/id_aliases.json \
+  --output-dir result/popqa_sensitivity
 ```
+
+PopQA 使用 `popqa/popqa.py`，需要 gold 中的 `answer_id` 及完整 aliases 文件。
+此前误用单答案评估器的 PopQA 结果需离线重评；修正后的敏感性和 EL 覆盖脚本
+都会使用答案别名，并在汇总中记录评估器路径及 `answer_aliases_enabled`。
 
 后两个例子使用默认字段，均可像 Hotpot 示例一样修改。`--eval-python /path/to/python`
 可指定评估解释器，默认与主脚本相同。
@@ -84,15 +89,14 @@ gold、aliases 和输入文件继续使用各自的路径参数，不自动从�
 - `predictions/theta_10__c_128.json`：`answer[id]` 是选中回复提取出的短答案，
   可直接交给原评估器；同时提供空 `sp` 和 `evidence`，兼容 PopQA 接口。
 - `metrics/*.json`：原评估输出、原始单位及统一百分数后的答案指标。
-- `logs/*.log`：完整评估命令、stdout、stderr；PopQA 的 missing sp/evidence
-  提示是没有提供支持事实预测的正常表现，sp/evidence/joint 不用于本实验汇总。
+- `logs/*.log`：完整评估命令、stdout、stderr；仅汇总答案评估指标。
 - `details/*.jsonl`：仅 `--save-details` 时生成，记录 `selected_source`、
   最终完整回复（默认 `llm_response`）、短答案 `prediction` 和评分。
 
 解析严格调用相应数据集 `phrase_ans.py` 的 `phrase_answer()`；保留历史规则，
 包括未匹配句式时返回整段回复。不会执行该文件主程序中的写死路径，也不会改动它。
 实际评估入口分别为 `hotpot/hotpot_evaluate_v1.py`、
-`2wikimultihop/2wikimultihop_evaluate_v1.1.py`、`popqa/2wikimultihop_evaluate.py`，
+`2wikimultihop/2wikimultihop_evaluate_v1.1.py`、`popqa/popqa.py`，
 均位于 `dataset_test` 下并保持原样。
 
 以提供的完整 gold 为分母；不自动按输入裁剪，缺失和额外 ID 数会写入汇总。
