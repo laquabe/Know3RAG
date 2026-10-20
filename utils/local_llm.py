@@ -97,6 +97,27 @@ def load_local_llm(model_name: str, model_path: str, logit: bool = False):
     raise ValueError(f'Unsupported local model_name: {model_name}')
 
 
+def _glm_batch_item(tokenizer, messages):
+    # Match the legacy single-call template exactly. Older GLM4 tokenizers
+    # return [[tokens]] even without return_tensors, unlike generic HF templates.
+    # Request a known [1, sequence] shape, then remove ONLY that batch dimension
+    # before tokenizer.pad constructs the real batch. Keep masks/position IDs.
+    inputs = tokenizer.apply_chat_template(
+        messages, add_generation_prompt=True, tokenize=True,
+        return_tensors="pt", return_dict=True,
+    )
+    result = {}
+    for key, value in inputs.items():
+        shape = getattr(value, "shape", ())
+        if len(shape) != 2 or shape[0] != 1:
+            raise ValueError(f"GLM4 template field {key!r} must have shape [1, sequence], got {shape}")
+        result[key] = value[0].tolist()
+    width = len(result.get("input_ids", []))
+    if not width or any(len(value) != width for value in result.values()):
+        raise ValueError("GLM4 template fields must have the same non-empty sequence length")
+    return result
+
+
 def call_local_llm_batch(
     batch: List[List[Dict[str, str]]],
     model_name: str,
@@ -144,9 +165,7 @@ def call_local_llm_batch(
     else:
         # Use the original GLM chat template; do not tokenize its rendered text a
         # second time, which could duplicate model-specific special tokens.
-        encoded = [tok.apply_chat_template(
-            m, add_generation_prompt=True, tokenize=True, return_dict=True,
-        ) for m in batch]
+        encoded = [_glm_batch_item(tok, m) for m in batch]
         lengths = [len(item["input_ids"]) for item in encoded]
     order = sorted(range(len(batch)), key=lambda i: (lengths[i], i))
     results = [""] * len(batch)
