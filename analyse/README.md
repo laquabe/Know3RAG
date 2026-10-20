@@ -1,5 +1,113 @@
 # 参数扫描与最终答案融合
 
+## 配对 Bootstrap：主结果置信区间
+
+使用 [`paired_bootstrap.py`](paired_bootstrap.py) 比较两份已解析答案 JSON，复用历史
+评测器计算逐题 EM/F1，以相同题目索引有放回抽样，报告自身指标与双方差值的 95% 区间。
+默认 10,000 次重采样、种子 42；不重新运行模型。主表九组的最强基线比较可用
+[`bootstrap_main_results.py`](bootstrap_main_results.py) 批量执行，命令和解释边界见
+[`paired_bootstrap.md`](paired_bootstrap.md)。
+
+## 答案长度与完整包含关系诊断
+
+使用 [`answer_diagnostics.py`](answer_diagnostics.py) 分析两份已解析答案，报告平均词数、
+中位数、P90、本方法更长的比例，以及 EM=0 答案中完整包含参考答案且有额外词的题数及占比。
+复用原评测器和 bootstrap 输入校验；2Wiki/PopQA 保留 gold answer、aliases、demonyms。
+不重新解析答案、不修改原 EM/F1、不执行 bootstrap。三个数据集的运行示例、输出及解释边界见
+[`answer_diagnostics.md`](answer_diagnostics.md)。
+可选 `--f1-thresholds` 扫描高 F1 但 EM=0 的答案，并对称统计同题 F1 高于另一方法的样本。
+默认阈值为 `0 0.25 0.5 0.6 0.7 0.8 0.9 1`；单独输出扫描表，不选择最优阈值。
+
+## EM 四分类与 F1 配对分解
+
+使用 [`em_f1_decomposition.py`](em_f1_decomposition.py) 补齐审稿人点名的三组主表比较，
+按双方原 EM 状态报告四组题数、双方平均 F1 及各组对总体 ΔF1 的贡献。
+原评测器核对与四组贡献还原检查均通过后才输出；2Wiki 保留 aliases 和 demonyms。
+固定输入清单、运行命令和统计口径见 [`em_f1_decomposition.md`](em_f1_decomposition.md)。
+
+## Bad case 候选粗筛与过程阅读
+
+[`bad_case_candidates.py`](bad_case_candidates.py) 默认处理 `result_202608/ref/` 中的
+2Wiki / Qwen 主实验缓存：最终 EM=0、两份 Llama 缓存的 `query_entity` QID 并集未命中
+任何 gold 支撑实体、前两次回答检查均未放行，且最终选择轮次上限处的回答。
+使用原答案解析器、评测器及 aliases/demonyms；全部预测重建与主实验一致后才生成报告。
+需要 Python 3.9+、NumPy、ujson，以及本目录已有的分析模块。
+
+```bash
+python analyse/bad_case_candidates.py
+```
+
+默认输出 `result_202608/bad_case_candidates/` 中的 `candidates.jsonl`、`summary.json`
+和可离线打开的 `review.html`。阅读报告每页 20 题，可搜索问题/ID/答案，按四类 KGE
+检查状态与 F1=0 / F1>0 筛选；默认 F1、题目 ID 升序。EM/F1 使用 0–1 单位。
+三元组分数对应每份 `wait4merge` 中的 `old_llm_response`；默认 θ₀=0.2、c=128。
+严格小于阈值才通过，等于阈值继续；无有效参考分数记为无法评分，不填入虚构高分。
+提前接受的回答排除，gold 映射或任一 EL 来源记录缺失的题目也不作为零覆盖候选。
+
+passage 级 local check 和 triple score **仅补充阅读材料，不参与粗筛**。可关闭补充：
+
+```bash
+python analyse/bad_case_candidates.py \
+  --skip-reference-checks \
+  --output-dir result_202608/bad_case_candidates_without_checks
+```
+
+默认仍从两份 Llama 文件读取实体；有独立实体文件时，可用 `--el-files /path/el1.jsonl
+/path/el2.jsonl` 替换。每个 EL 来源须覆盖待筛题目，文件内允许同题多个快照并取并集。
+缓存输入使用 JSONL（允许 `.json` 后缀），gold 与最终预测使用历史 JSON 格式。
+其他路径通过 `--turn0-input`、`--turn1-input`、`--prediction-file`、`--gold-file`、
+`--alias-file`、`--dataset-test-dir` 覆盖；该版本只处理 2Wiki。使用另一组实验时须同时
+设置对应的 `--theta0`、`--c`、`--backbone` 和全部输入。已有输出需显式 `--overwrite`，
+始终禁止覆盖输入。HTML 模板 [`bad_case_review.html`](bad_case_review.html) 应与脚本一起保留。
+
+候选只是粗筛：EM=0、高 KGE 分数或实体未命中不能单独证明事实错误或失败原因。
+并集不是某轮真实查询；参考未出现不自动等于被过滤；未提供的检查保留未知。
+报告分别保留原始回答、实际评分三元组、gold 证据与来源行号，并留出人工分析说明。
+人工整理的错误事实可以包含系统未抽到的关系，但须与实测三元组和分数分开。
+
+```bash
+python -m unittest discover -s tests -p 'test_bad_case_candidates.py' -v
+```
+
+## Bad case 二次筛选：同名错链线索
+
+[`bad_case_shortlist.py`](bad_case_shortlist.py) 只读取已生成的粗筛 `candidates.jsonl`，
+复用 `el_accuracy.py` 的规范化、名称对齐和位置有效性判断，寻找问题中完整出现的
+直接 mention 与同题唯一 gold QID 不一致的线索。先严格同名，再允许 gold 名称
+去掉末尾括号；歧义匹配、扩展实体、无效位置和不在问题中的 mention 不作为线索。
+位置只用于区分直接链接，不按字符下标截取原问题。无需第三方 Python 包或模型调用。
+
+```bash
+python analyse/bad_case_shortlist.py
+python -m unittest discover -s tests -p 'test_bad_case_shortlist.py' -v
+```
+
+默认输出到 `result_202608/bad_case_shortlist/`，只有 `candidates.jsonl` 和 `summary.json`。
+可用 `--input`、`--output-dir` 替换路径；重复生成需显式 `--overwrite`，禁止覆盖输入。
+不重跑粗筛、答案评测或 KGE 评分，不处理 passage 检查，不生成网页。
+
+每条输出完整保留原候选，新增 `second_pass`：两档匹配结果、原始 mention、预测 QID、
+目标名称与描述、对应 gold QID 与名称、原记录及来源行号、身份信息完整度、来源冲突、
+实体数量、排序键与顺序号。严格档只需至少一条严格线索；同题的去括号线索仍完整保留。
+目标信息来自各自原始记录，绝不跨来源拼接。`manual_analysis` 原样保留，默认仍待人工阅读。
+
+排序为严格档优先、身份信息齐全优先、无跨来源冲突优先、错链 mention 数升序、直接
+mention 数升序、F1 升序、题目 ID 升序。身份信息齐全要求**每条入选错链记录各自**都有
+非空名称和描述；跨来源冲突指不同源文件对同一规范化直接 mention 给出不同 QID。
+同一文件内多个快照不算跨来源，记录仍保留。mention 数按规范化名称跨来源去重，直接
+mention 数包含所有位置有效记录；记录总数及并集 QID 数另存。数量和元数据仅影响排序，
+不设截断、不丢弃相应候选。所有 gold 关系、支撑句、逐轮回答与系统行为留待阅读。
+
+输出是名称对齐后的 QID 不一致线索，**不自动确认事实错误、错链语义或失败原因**。
+人工错误事实分析与系统实际检查行为继续分开；未抽取关系不附加系统原始评分。
+
+## EL 准确率与支撑实体召回率
+
+使用 [`el_accuracy.py`](el_accuracy.py) 离线评估 2Wiki、HotpotQA、PopQA 的两档
+mention 对齐 QID 一致率，以及直接链接和完整 `query_entity` 的支撑实体召回率。
+无需模型推理或答案评估；映射不完整题单列。三套命令及指标边界见
+[`el_accuracy.md`](el_accuracy.md)。
+
 ## EL 覆盖分层评测
 
 使用 [`el_coverage.py`](el_coverage.py) 读取一份 EL 和数据集 gold，支持通过

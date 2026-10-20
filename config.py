@@ -23,6 +23,7 @@ class LLMConfig:
     local_model_path: str = ""
     local_max_new_tokens: int = 1024
     local_do_sample: bool = False
+    local_batch_size: int = 1
 
 
 @dataclass

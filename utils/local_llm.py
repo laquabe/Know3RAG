@@ -97,6 +97,128 @@ def load_local_llm(model_name: str, model_path: str, logit: bool = False):
     raise ValueError(f'Unsupported local model_name: {model_name}')
 
 
+def call_local_llm_batch(
+    batch: List[List[Dict[str, str]]],
+    model_name: str,
+    model=None,
+    tokenizer=None,
+    pipeline=None,
+    do_sample: bool = False,
+    max_new_tokens: int = 1024,
+    batch_size: int = 1,
+    batch_events: Optional[List[Dict]] = None,
+) -> List[str]:
+    """True padded GPU batches for Llama/GLM4; preserve single-call behavior.
+
+    Sort only within this call and scatter outputs back to the original order.
+    CUDA OOM retries split the affected batch, never truncate its inputs.
+    """
+    import gc
+    import logging
+
+    if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size < 1:
+        raise ValueError("batch_size must be a positive integer")
+    if not batch:
+        return []
+    events = batch_events if batch_events is not None else []
+
+    def single(messages):
+        return call_local_llm(
+            messages, model_name, model=model, tokenizer=tokenizer, pipeline=pipeline,
+            do_sample=do_sample, max_new_tokens=max_new_tokens,
+        )
+
+    if batch_size == 1 or model_name not in ("Llama", "GLM4"):
+        results = []
+        for messages in batch:
+            results.append(single(messages))
+            events.append({"batch_size": 1, "status": "complete"})
+        return results
+
+    import torch
+    tok = pipeline.tokenizer if model_name == "Llama" else tokenizer
+    if model_name == "Llama":
+        encoded = [tok.apply_chat_template(m, tokenize=False, add_generation_prompt=True)
+                   for m in batch]
+        lengths = [len(tok(text)["input_ids"]) for text in encoded]
+    else:
+        # Use the original GLM chat template; do not tokenize its rendered text a
+        # second time, which could duplicate model-specific special tokens.
+        encoded = [tok.apply_chat_template(
+            m, add_generation_prompt=True, tokenize=True, return_dict=True,
+        ) for m in batch]
+        lengths = [len(item["input_ids"]) for item in encoded]
+    order = sorted(range(len(batch)), key=lambda i: (lengths[i], i))
+    results = [""] * len(batch)
+
+    old_side, old_pad = tok.padding_side, tok.pad_token_id
+    if old_pad is None and tok.eos_token_id is None:
+        raise ValueError("Batch generation requires a pad token or an EOS token")
+    tok.padding_side = "left"
+    if old_pad is None:
+        tok.pad_token_id = tok.eos_token_id
+
+    def generate(indices):
+        if len(indices) == 1:
+            return [single(batch[indices[0]])]
+        if model_name == "Llama":
+            prompts = [encoded[i] for i in indices]
+            kwargs = dict(
+                batch_size=len(indices), num_workers=0, max_new_tokens=max_new_tokens,
+                eos_token_id=[tok.eos_token_id, tok.convert_tokens_to_ids("<|eot_id|>")],
+                pad_token_id=tok.pad_token_id, do_sample=do_sample,
+            )
+            if do_sample:
+                kwargs.update(temperature=0.6, top_p=0.9)
+            outputs = pipeline(prompts, **kwargs)
+            if len(outputs) != len(prompts):
+                raise ValueError("Model returned the wrong number of batch outputs")
+            return [output[0]["generated_text"][len(prompt):]
+                    for prompt, output in zip(prompts, outputs)]
+        inputs = tok.pad([encoded[i] for i in indices], padding=True, return_tensors="pt")
+        inputs = inputs.to(model.device)
+        width = inputs["input_ids"].shape[1]
+        kwargs = dict(max_length=width + max_new_tokens, do_sample=do_sample,
+                      pad_token_id=tok.pad_token_id)
+        if do_sample:
+            kwargs["top_k"] = 1
+        with torch.no_grad():
+            outputs = model.generate(**inputs, **kwargs)
+        return tok.batch_decode(outputs[:, width:], skip_special_tokens=True)
+
+    def run_group(indices):
+        try:
+            outputs = generate(indices)
+            if len(outputs) != len(indices):
+                raise ValueError("Model returned the wrong number of batch outputs")
+            for index, output in zip(indices, outputs):
+                results[index] = output
+            events.append({"batch_size": len(indices), "status": "complete"})
+            return
+        except RuntimeError as exc:
+            is_oom = isinstance(exc, torch.cuda.OutOfMemoryError) or "cuda out of memory" in str(exc).lower()
+            if not is_oom or len(indices) == 1:
+                raise
+            events.append({"batch_size": len(indices), "status": "cuda_oom"})
+        # Leave the except block before clearing memory: its traceback may retain
+        # the tensors from the failed generate call.
+        gc.collect()
+        torch.cuda.empty_cache()
+        logging.warning("CUDA OOM: splitting batch of %d", len(indices))
+        middle = len(indices) // 2
+        run_group(indices[:middle])
+        run_group(indices[middle:])
+
+    try:
+        for start in range(0, len(order), batch_size):
+            run_group(order[start:start + batch_size])
+    finally:
+        tok.padding_side = old_side
+        if old_pad is None:
+            tok.pad_token_id = old_pad
+    return results
+
+
 def call_local_llm(
     messages: List[Dict[str, str]],
     model_name: str,
